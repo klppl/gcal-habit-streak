@@ -110,14 +110,16 @@ const CONFIG = {
         };
       }
   
-      // Detect "RESET" event if enabled
-      let resetTriggered = false;
-      if (CONFIG.enableResetByEvent) {
-        resetTriggered = processResetEvents(calendar, startOfDay, endOfDay);
-      }
+        // Detect "RESET" or "SKIP" events if enabled
+  let resetTriggered = false;
+  let skipTriggered = false;
+  if (CONFIG.enableResetByEvent) {
+    resetTriggered = processResetEvents(calendar, startOfDay, endOfDay);
+    skipTriggered = processSkipEvents(calendar, startOfDay, endOfDay);
+  }
   
-      // Determine counter
-      const count = determineCounter(props, resetTriggered);
+        // Determine counter
+  const count = determineCounter(props, resetTriggered, skipTriggered);
       
       // Validate counter
       if (count > CONFIG.maxCounterDays) {
@@ -213,12 +215,41 @@ const CONFIG = {
   }
   
   /**
+   * Process SKIP events and return whether a skip was triggered
+   * @param {Calendar} calendar - The calendar object
+   * @param {Date} startOfDay - Start of the day
+   * @param {Date} endOfDay - End of the day
+   * @returns {boolean} Whether a skip was triggered
+   */
+  function processSkipEvents(calendar, startOfDay, endOfDay) {
+    const events = calendar.getEvents(startOfDay, endOfDay, {search: "SKIP"});
+    const skipEvents = events.filter(event =>
+      event.isAllDayEvent() && event.getTitle().trim().toUpperCase() === "SKIP"
+    );
+  
+    if (skipEvents.length > 0) {
+      log(`Found ${skipEvents.length} SKIP event(s)`);
+      
+      // Delete SKIP events after processing
+      skipEvents.forEach(event => {
+        event.deleteEvent();
+        log(`Deleted SKIP event: ${event.getTitle()}`);
+      });
+      
+      return true;
+    }
+    
+    return false;
+  }
+  
+  /**
    * Determine the counter value based on configuration and current state
    * @param {Properties} props - Script properties
    * @param {boolean} resetTriggered - Whether a reset was triggered
+   * @param {boolean} skipTriggered - Whether a skip was triggered
    * @returns {number} The counter value
    */
-  function determineCounter(props, resetTriggered) {
+  function determineCounter(props, resetTriggered, skipTriggered) {
     if (CONFIG.manualCounter !== null) {
       log(`Using manual counter: ${CONFIG.manualCounter}`);
       return CONFIG.manualCounter;
@@ -227,6 +258,11 @@ const CONFIG = {
     if (resetTriggered) {
       log('Reset triggered, starting counter at 1');
       return 1;
+    }
+    
+    if (skipTriggered) {
+      log('Skip triggered, keeping counter at current value');
+      return parseInt(props.getProperty("HABIT_COUNTER") || "0", 10);
     }
     
     const currentCount = parseInt(props.getProperty("HABIT_COUNTER") || "0", 10);
@@ -420,43 +456,7 @@ const CONFIG = {
     log(`Changed theme to: ${theme}`);
   }
 
-/**
- * Create a SKIP event for today (pause without incrementing counter)
- */
-function skipToday() {
-  const calendar = getCalendarByName(CONFIG.calendarName);
-  if (!calendar) {
-    throw new Error(`Calendar '${CONFIG.calendarName}' not found. Available calendars: ${getAvailableCalendarNames().join(', ')}`);
-  }
-  const today = new Date();
-  const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const endOfDay = new Date(startOfDay);
-  endOfDay.setDate(endOfDay.getDate() + 1); // all-day events are exclusive on end date
 
-  // Check if a SKIP event already exists for today
-  const existingEvents = calendar.getEvents(startOfDay, endOfDay);
-  const skipEvents = existingEvents.filter(event =>
-    event.isAllDayEvent() && event.getTitle().includes("SKIP")
-  );
-  if (skipEvents.length > 0) {
-    log(`SKIP event already exists for today: ${skipEvents[0].getTitle()}`);
-    return {
-      success: false,
-      message: "SKIP event already exists for today",
-      existingEvent: skipEvents[0].getTitle()
-    };
-  }
-
-  const title = `SKIP – Took a day off`;
-  const event = calendar.createAllDayEvent(title, startOfDay, endOfDay);
-  log(`Created SKIP event: ${title}`);
-  return {
-    success: true,
-    message: "SKIP event created successfully",
-    eventTitle: title,
-    eventId: event.getId()
-  };
-}
 
 /**
  * Add custom menu and ensure daily trigger exists
@@ -480,6 +480,92 @@ function onOpen(e) {
       .timeBased()
       .atHour(1)
       .everyDays(1)
+      .create();
+  }
+  
+  // Ensure weekly summary trigger exists
+  ensureWeeklyTrigger();
+}
+
+/**
+ * Summarize last week's habit activity and email it to yourself.
+ */
+function sendWeeklySummary() {
+  const CAL_NAME = CONFIG.calendarName;
+  const calendar = getCalendarByName(CAL_NAME);
+  if (!calendar) throw new Error(`Calendar "${CAL_NAME}" not found.`);
+
+  // Define last week range (Mon 00:00 → next Mon 00:00)
+  const now = new Date();
+  const todayDow = now.getDay(); // 0=Sun,1=Mon...
+  // Compute most recent Monday
+  const daysSinceMon = (todayDow + 6) % 7;
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMon);
+  const nextMonday = new Date(monday);
+  nextMonday.setDate(monday.getDate() + 7);
+
+  // Fetch all‐day events containing "Day" in title
+  const events = calendar
+    .getEvents(monday, nextMonday)
+    .filter(ev => ev.isAllDayEvent() && ev.getTitle().match(/^Day\s+\d+/));
+
+  // Analytics
+  const totalDays = 7;
+  const tracked = events.length;
+  const missed = totalDays - tracked;
+  const titles = events.map(ev => ev.getTitle()).join('\n');
+
+  // Detect resets or skips
+  const resets = calendar
+    .getEvents(monday, nextMonday, { search: 'RESET' })
+    .filter(ev => ev.isAllDayEvent()).length;
+  const skips = calendar
+    .getEvents(monday, nextMonday, { search: 'SKIP' })
+    .filter(ev => ev.isAllDayEvent()).length;
+
+  // Build email body
+  const mailBody = `
+Weekly Habit Summary (${formatDate(monday)} – ${formatDate(new Date(nextMonday - 1))})
+
+• Tracked days: ${tracked}
+• Missed days: ${missed}
+• Skips logged: ${skips}
+• Resets triggered: ${resets}
+
+Entries:
+${titles || 'No entries found'}
+
+Keep it up!
+  `.trim();
+
+  // Send to yourself
+  const email = Session.getActiveUser().getEmail();
+  MailApp.sendEmail({
+    to:        email,
+    subject:   `🗓️ Weekly Habit Report: ${formatDate(monday)}`,
+    body:      mailBody
+  });
+}
+
+/** Helper: YYYY‑MM‑DD */
+function formatDate(d) {
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy‑MM‑dd');
+}
+
+/**
+ * Install the weekly‐summary trigger if it doesn't yet exist.
+ * Call this once (e.g. from onOpen).
+ */
+function ensureWeeklyTrigger() {
+  const fn = 'sendWeeklySummary';
+  const has = ScriptApp.getProjectTriggers()
+    .some(t => t.getHandlerFunction() === fn);
+  if (!has) {
+    ScriptApp.newTrigger(fn)
+      .timeBased()
+      .everyWeeks(1)
+      .onWeekDay(ScriptApp.WeekDay.MONDAY)
+      .atHour(8)
       .create();
   }
 }
