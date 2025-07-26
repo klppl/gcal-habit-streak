@@ -256,7 +256,8 @@ const CONFIG = {
     }
     
     // Otherwise, cycle through theme messages
-    return messages[day % messages.length];
+    // return messages[day % messages.length];
+    return messages[(day - 1) % messages.length];
   }
   
   /**
@@ -418,4 +419,30 @@ const CONFIG = {
     CONFIG.theme = theme;
     log(`Changed theme to: ${theme}`);
   }
+
+/**
+ * Add custom menu and ensure daily trigger exists
+ */
+function onInstall(e) {
+  onOpen(e);
+}
+
+function onOpen(e) {
+  SpreadsheetApp.getUi()
+    .createMenu('Habit Streak')
+    .addItem('Create Today’s Event', 'createDailyHabitEvent')
+    .addToUi();
+
+  // Ensure daily trigger exists
+  const hasTrigger = ScriptApp.getProjectTriggers().some(
+    t => t.getHandlerFunction() === 'createDailyHabitEvent'
+  );
+  if (!hasTrigger) {
+    ScriptApp.newTrigger('createDailyHabitEvent')
+      .timeBased()
+      .atHour(1)
+      .everyDays(1)
+      .create();
+  }
+}
   
