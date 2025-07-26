@@ -39,22 +39,39 @@ const CONFIG = {
       "Harvesting Progress 🌾"
     ],
     sobriety: [
-      "I Will Not Drink Today 💪",
-      "Sober and Strong Today 🦁",
-      "Clear Mind, Clear Path 🧠",
-      "Freedom from the Bottle 🕊️",
-      "Living Life on My Terms 🎯",
-      "Sober Warrior Today ⚔️",
-      "Breaking Free from Chains 🔓",
-      "Sober and Serene 🌅",
-      "Alcohol-Free and Alive ⚡",
-      "Sober Today, Stronger Tomorrow 💎",
-      "Not Drinking, Just Living 🌟",
-      "Sober and Proud 🏆",
-      "Freedom Feels Amazing 🦋",
-      "Sober Mind, Sober Life 🎪",
-      "Alcohol-Free Zone 🚫🍺"
-    ]
+      "I will not drink today 💪",
+      "I’m staying sober with you today 🫱🫲",
+      "Clear mind, steady path 🧠",
+      "One day at a time 🙏",
+      "Today, I choose sobriety 🌤️",
+      "Sober and strong, just for today 🦁",
+      "I’m free from alcohol today 🕊️",
+      "Today I live life on my terms 🎯",
+      "No drinks, no regrets 🌅",
+      "I’m sober and grateful 🙌",
+      "Just for today, I will not drink ⛅",
+      "Showing up sober, again 💎",
+      "Sober today, stronger tomorrow 🧱",
+      "Choosing clarity today 🌱",
+      "Another day, no alcohol needed 🛡️"
+    ],
+    minimal: [
+      "✅",
+      "🟢",
+      "🔘",
+      "⏺️",
+      "➕",
+      "🟩",
+      "📍",
+      "🪙",
+      "📅",
+      "📈",
+      "⚪",
+      "🔲",
+      "🟠",
+      "🧿",
+      "🪩"
+    ]    
   };
   
   /**
@@ -158,8 +175,8 @@ const CONFIG = {
       throw new Error('maxCounterDays must be a positive number');
     }
     
-    if (!['general', 'growth', 'sobriety', 'custom'].includes(CONFIG.theme)) {
-      throw new Error('theme must be "general", "growth", "sobriety", or "custom"');
+    if (!['general', 'growth', 'sobriety', 'minimal', 'custom'].includes(CONFIG.theme)) {
+      throw new Error('theme must be "general", "growth", "sobriety", "minimal", or "custom"');
     }
     
     if (CONFIG.theme === 'custom' && (!Array.isArray(CONFIG.customMessages) || CONFIG.customMessages.length === 0)) {
@@ -392,11 +409,11 @@ const CONFIG = {
   
   /**
    * Change theme
-   * @param {string} theme - Theme name: "general", "growth", "sobriety", or "custom"
+   * @param {string} theme - Theme name: "general", "growth", "sobriety", "minimal", or "custom"
    */
   function changeTheme(theme) {
-    if (!['general', 'growth', 'sobriety', 'custom'].includes(theme)) {
-      throw new Error('theme must be "general", "growth", "sobriety", or "custom"');
+    if (!['general', 'growth', 'sobriety', 'minimal', 'custom'].includes(theme)) {
+      throw new Error('theme must be "general", "growth", "sobriety", "minimal", or "custom"');
     }
     CONFIG.theme = theme;
     log(`Changed theme to: ${theme}`);
