@@ -142,6 +142,26 @@ To reset your counter, create an all-day event in your calendar with the title "
 3. Reset your counter to 1
 4. Create a new Day 1 event
 
+## ⏸️ Skip Functionality
+
+Take conscious breaks without losing your streak! The `skipToday()` function creates a "SKIP – Took a day off" event that:
+- **Preserves your counter** - Your streak number stays the same
+- **Tracks intentional breaks** - Shows you made a conscious choice to pause
+- **Prevents duplicates** - Won't create multiple SKIP events for the same day
+- **Provides feedback** - Returns success/failure status
+
+Perfect for:
+- Planned rest days
+- Sick days
+- Travel days
+- Mental health breaks
+- Any day you want to pause without resetting progress
+
+**Usage:**
+```javascript
+skipToday(); // Creates "SKIP – Took a day off" event for today
+```
+
 ## 📅 Event Format
 
 Events are created as all-day events with the format:
