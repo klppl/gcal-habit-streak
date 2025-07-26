@@ -421,6 +421,44 @@ const CONFIG = {
   }
 
 /**
+ * Create a SKIP event for today (pause without incrementing counter)
+ */
+function skipToday() {
+  const calendar = getCalendarByName(CONFIG.calendarName);
+  if (!calendar) {
+    throw new Error(`Calendar '${CONFIG.calendarName}' not found. Available calendars: ${getAvailableCalendarNames().join(', ')}`);
+  }
+  const today = new Date();
+  const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const endOfDay = new Date(startOfDay);
+  endOfDay.setDate(endOfDay.getDate() + 1); // all-day events are exclusive on end date
+
+  // Check if a SKIP event already exists for today
+  const existingEvents = calendar.getEvents(startOfDay, endOfDay);
+  const skipEvents = existingEvents.filter(event =>
+    event.isAllDayEvent() && event.getTitle().includes("SKIP")
+  );
+  if (skipEvents.length > 0) {
+    log(`SKIP event already exists for today: ${skipEvents[0].getTitle()}`);
+    return {
+      success: false,
+      message: "SKIP event already exists for today",
+      existingEvent: skipEvents[0].getTitle()
+    };
+  }
+
+  const title = `SKIP – Took a day off`;
+  const event = calendar.createAllDayEvent(title, startOfDay, endOfDay);
+  log(`Created SKIP event: ${title}`);
+  return {
+    success: true,
+    message: "SKIP event created successfully",
+    eventTitle: title,
+    eventId: event.getId()
+  };
+}
+
+/**
  * Add custom menu and ensure daily trigger exists
  */
 function onInstall(e) {

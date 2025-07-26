@@ -29,7 +29,7 @@ const CONFIG = {
     calendarName: "Habits",              // Your calendar name
     habitName: "My Habit",               // Name of your habit
     startDate: new Date("2025-01-01"),   // When you started
-    theme: "general",                    // "general", "growth", "sobriety", or "custom"
+    theme: "general",                    // "general", "growth", "sobriety", "minimal", or "custom"
     enableResetByEvent: true,            // Allow RESET events
     enableLogging: true,                 // Enable console logging
     maxCounterDays: 10000               // Safety limit
@@ -41,6 +41,7 @@ const CONFIG = {
 1. Click the "Run" button in Google Apps Script
 2. Grant necessary permissions when prompted
 3. The script will create your first habit tracking event
+4. A "Habit Streak" menu will appear in Google Sheets for easy access
 
 ## 🎨 Available Themes
 
@@ -60,10 +61,17 @@ Growth-focused messages like:
 
 ### 🚫 Sobriety Theme
 Inspired by recovery communities:
-- "I Will Not Drink Today 💪"
-- "Sober and Strong Today 🦁"
-- "Clear Mind, Clear Path 🧠"
-- "Freedom from the Bottle 🕊️"
+- "I will not drink today 💪"
+- "I'm staying sober with you today 🫱🫲"
+- "Clear mind, steady path 🧠"
+- "One day at a time 🙏"
+
+### ⚡ Minimal Theme
+Simple, abstract symbols:
+- "✅"
+- "🟢"
+- "🔘"
+- "⏺️"
 
 ### 🎯 Custom Theme
 Create your own messages:
@@ -105,6 +113,9 @@ Returns the current streak count.
 
 #### `resetCounter(newValue)`
 Resets the counter to a specified value (default: 0).
+
+#### `skipToday()`
+Creates a "SKIP – Took a day off" event for today without incrementing the counter. Useful for conscious breaks.
 
 #### `getTrackingStats()`
 Returns comprehensive statistics including:
@@ -154,7 +165,7 @@ Examples:
 | `enableResetByEvent` | boolean | true | Allow RESET events |
 | `enableLogging` | boolean | true | Enable console logging |
 | `maxCounterDays` | number | 10000 | Safety limit for counter |
-| `theme` | string | "general" | Theme to use |
+| `theme` | string | "general" | Theme to use ("general", "growth", "sobriety", "minimal", "custom") |
 | `customMessages` | array | [] | Custom messages for custom theme |
 
 ## 🚨 Safety Features
@@ -173,10 +184,17 @@ const result = createDailyHabitEvent();
 console.log(result.message);
 ```
 
+### Skip Today
+```javascript
+// Take a conscious break without losing streak
+const skipResult = skipToday();
+console.log(skipResult.message);
+```
+
 ### Change Theme
 ```javascript
-// Switch to sobriety theme
-changeTheme("sobriety");
+// Switch to minimal theme
+changeTheme("minimal");
 createDailyHabitEvent();
 ```
 
