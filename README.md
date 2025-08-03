@@ -8,7 +8,7 @@ Track your daily habits with Google Calendar events. Automatically counts streak
 1. Open [Google Apps Script](https://script.google.com)
 2. Paste the `script.js` code
 3. Configure your habits in the `CONFIG` section
-4. Run `onOpen()` once to set up triggers
+4. Run `setupTriggers()` once to set up triggers
 5. Done! Events will be created daily at 1 AM
 
 ## How It Works

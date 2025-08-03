@@ -479,18 +479,7 @@ const CONFIG = {
     }
   }
   
-  /**
-   * Get list of available calendar names
-   * @returns {string[]} Array of calendar names
-   */
-  function getAvailableCalendarNames() {
-    try {
-      return CalendarApp.getAllCalendars().map(cal => cal.getName());
-    } catch (error) {
-      log(`Error getting calendar names: ${error.message}`);
-      return [];
-    }
-  }
+
   
   /**
    * Log message if logging is enabled
@@ -767,16 +756,22 @@ const CONFIG = {
 /**
  * Add custom menu and ensure daily trigger exists
  */
-function onInstall(e) {
-  onOpen(e);
+function onOpen(e) {
+  // Only create menu if running in Google Sheets
+  try {
+    SpreadsheetApp.getUi()
+      .createMenu('Habit Streak')
+      .addItem('Create Today\'s Event', 'createDailyHabitEvent')
+      .addToUi();
+  } catch (error) {
+    // Running in standalone Apps Script - no UI available
+    console.log('Running in standalone mode - no menu created');
+  }
+
+  setupTriggers();
 }
 
-function onOpen(e) {
-  SpreadsheetApp.getUi()
-    .createMenu('Habit Streak')
-    .addItem('Create Today’s Event', 'createDailyHabitEvent')
-    .addToUi();
-
+function setupTriggers() {
   // Ensure daily trigger exists
   const hasTrigger = ScriptApp.getProjectTriggers().some(
     t => t.getHandlerFunction() === 'createDailyHabitEvent'
