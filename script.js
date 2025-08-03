@@ -1,14 +1,19 @@
 // === CONFIGURATION ===
 const CONFIG = {
     calendarName: "Habits",              // Name of the calendar to use
-    habitName: "General Habit",          // Name of your habit (for reference)
-    startDate: new Date("2025-01-01"),   // When your habit started (for reference/future use)
-    manualCounter: null,                 // Set to a number to override counter (e.g., 42), or null to auto-increment
+    habits: [                            // Array of habits to track
+      // **Just the essentials** per habit:
+      { id: "general",    name: "General Habit",   startDate: "2025-01-01", enabled: true },
+      { id: "exercise",   name: "Daily Exercise",  startDate: "2024-12-01", theme: "growth", enabled: false },
+      { id: "reading",    name: "Reading",         startDate: "2024-11-15", enabled: false },
+      { id: "meditation", name: "Daily Meditation", startDate: "2024-12-15", theme: "growth", enabled: false },
+      { id: "sobriety",   name: "Sobriety",        startDate: "2024-11-01", theme: "sobriety", enabled: false },
+      // Add more habits here...
+    ],
     enableResetByEvent: true,            // Set to false if you want to disable RESET detection
+    enableSkipByEvent: true,             // Set to false if you want to disable SKIP detection
     enableLogging: true,                 // Enable console logging for debugging
     maxCounterDays: 10000,              // Safety limit to prevent runaway counters
-    theme: "general",                    // Theme: "general", "growth", or "custom"
-    customMessages: []                   // Array of custom messages for "custom" theme
   };
   // =======================
   
@@ -75,7 +80,7 @@ const CONFIG = {
   };
   
   /**
-   * Main function to create daily habit tracking event
+   * Main function to create daily habit tracking events for all enabled habits
    * @returns {Object} Result object with success status and details
    */
   function createDailyHabitEvent() {
@@ -94,79 +99,171 @@ const CONFIG = {
       endOfDay.setDate(endOfDay.getDate() + 1); // all-day events are exclusive on end date
   
       const props = PropertiesService.getScriptProperties();
-  
-      // Check if event already exists for today
-      const existingEvents = calendar.getEvents(startOfDay, endOfDay);
-      const habitEvents = existingEvents.filter(event => 
-        event.isAllDayEvent() && event.getTitle().includes("Day") && event.getTitle().includes("–")
-      );
+      const results = [];
       
-      if (habitEvents.length > 0) {
-        log(`Event already exists for today: ${habitEvents[0].getTitle()}`);
-        return {
-          success: false,
-          message: "Event already exists for today",
-          existingEvent: habitEvents[0].getTitle()
-        };
+      // Process each enabled habit
+      for (const habit of CONFIG.habits) {
+        if (!habit.enabled) {
+          log(`Skipping disabled habit: ${habit.id}`);
+          continue;
+        }
+        
+        try {
+          const result = createHabitEventForDay(calendar, habit, startOfDay, endOfDay, props);
+          results.push(result);
+        } catch (error) {
+          log(`Error processing habit ${habit.id}: ${error.message}`);
+          results.push({
+            habitId: habit.id,
+            success: false,
+            error: error.message
+          });
+        }
       }
-  
-        // Detect "RESET" or "SKIP" events if enabled
-  let resetTriggered = false;
-  let skipTriggered = false;
-  if (CONFIG.enableResetByEvent) {
-    resetTriggered = processResetEvents(calendar, startOfDay, endOfDay);
-    skipTriggered = processSkipEvents(calendar, startOfDay, endOfDay);
-  }
-  
-        // Determine counter
-  const count = determineCounter(props, resetTriggered, skipTriggered);
       
-      // Validate counter
-      if (count > CONFIG.maxCounterDays) {
-        throw new Error(`Counter exceeded maximum limit of ${CONFIG.maxCounterDays} days`);
-      }
-  
-      const message = getHabitMessage(count);
-      const title = `Day ${count} – ${message}`;
-  
-      const event = calendar.createAllDayEvent(title, startOfDay, endOfDay);
-      props.setProperty("HABIT_COUNTER", count.toString());
+      const successfulResults = results.filter(r => r.success);
+      const failedResults = results.filter(r => !r.success);
       
-      log(`Successfully created event: ${title}`);
+      log(`Processed ${results.length} habits: ${successfulResults.length} successful, ${failedResults.length} failed`);
       
       return {
-        success: true,
-        message: "Event created successfully",
-        dayCount: count,
-        eventTitle: title,
-        eventId: event.getId()
+        success: successfulResults.length > 0,
+        message: `Processed ${results.length} habits`,
+        results: results,
+        successfulCount: successfulResults.length,
+        failedCount: failedResults.length
       };
       
     } catch (error) {
-      log(`Error creating event: ${error.message}`);
+      log(`Error creating events: ${error.message}`);
       console.error(`Error in createDailyHabitEvent: ${error.message}`);
       throw error;
     }
   }
   
   /**
-   * Validate configuration settings
+   * Create a habit event for a specific habit on a specific day
+   * @param {Calendar} calendar - The calendar object
+   * @param {Object} habit - The habit configuration
+   * @param {Date} startOfDay - Start of the day
+   * @param {Date} endOfDay - End of the day
+   * @param {Properties} props - Script properties
+   * @returns {Object} Result object for this habit
+   */
+  function createHabitEventForDay(calendar, habit, startOfDay, endOfDay, props) {
+    // Check if event already exists for this habit today
+    const existingEvents = calendar.getEvents(startOfDay, endOfDay);
+    const habitEvents = existingEvents.filter(event => 
+      event.isAllDayEvent() && 
+      event.getTitle().includes("Day") && 
+      event.getTitle().includes("–") &&
+      event.getTitle().includes(habit.name)
+    );
+    
+    if (habitEvents.length > 0) {
+      log(`Event already exists for habit ${habit.id} today: ${habitEvents[0].getTitle()}`);
+      return {
+        habitId: habit.id,
+        success: false,
+        message: "Event already exists for today",
+        existingEvent: habitEvents[0].getTitle()
+      };
+    }
+  
+    // Detect "RESET" or "SKIP" events if enabled
+    let resetTriggered = false;
+    let skipTriggered = false;
+    if (CONFIG.enableResetByEvent) {
+      resetTriggered = processResetEvents(calendar, startOfDay, endOfDay);
+    }
+    if (CONFIG.enableSkipByEvent) {
+      skipTriggered = processSkipEvents(calendar, startOfDay, endOfDay);
+    }
+  
+    // Determine counter for this habit
+    const count = determineCounterForHabit(props, habit, resetTriggered, skipTriggered);
+      
+    // Validate counter
+    if (count > CONFIG.maxCounterDays) {
+      throw new Error(`Counter exceeded maximum limit of ${CONFIG.maxCounterDays} days for habit ${habit.id}`);
+    }
+  
+    const message = getHabitMessageForHabit(count, habit);
+    const title = `${habit.name} - Day ${count} – ${message}`;
+  
+    const event = calendar.createAllDayEvent(title, startOfDay, endOfDay);
+    props.setProperty(`HABIT_COUNTER_${habit.id}`, count.toString());
+    
+    log(`Successfully created event for habit ${habit.id}: ${title}`);
+    
+    return {
+      habitId: habit.id,
+      success: true,
+      message: "Event created successfully",
+      dayCount: count,
+      eventTitle: title,
+      eventId: event.getId()
+    };
+  }
+  
+  /**
+   * Validate configuration settings and set defaults
    */
   function validateConfig() {
     if (!CONFIG.calendarName || typeof CONFIG.calendarName !== 'string') {
       throw new Error('Invalid calendarName in configuration');
     }
     
-    if (!CONFIG.habitName || typeof CONFIG.habitName !== 'string') {
-      throw new Error('Invalid habitName in configuration');
+    if (!CONFIG.habits || !Array.isArray(CONFIG.habits) || CONFIG.habits.length === 0) {
+      throw new Error('habits array must be a non-empty array');
     }
-    
-    if (CONFIG.manualCounter !== null && (typeof CONFIG.manualCounter !== 'number' || CONFIG.manualCounter < 0)) {
-      throw new Error('manualCounter must be null or a non-negative number');
-    }
+
+    CONFIG.habits.forEach((habit, index) => {
+      if (!habit.id || typeof habit.id !== 'string') {
+        throw new Error(`Habit at index ${index} must have an id`);
+      }
+      if (!habit.name || typeof habit.name !== 'string') {
+        throw new Error(`Habit '${habit.id}' must have a name`);
+      }
+      
+      // Handle startDate (can be string or Date)
+      if (!habit.startDate) {
+        throw new Error(`Habit '${habit.id}' must have a startDate`);
+      }
+      if (typeof habit.startDate === 'string') {
+        habit.startDate = new Date(habit.startDate);
+      }
+      if (!(habit.startDate instanceof Date) || isNaN(habit.startDate.getTime())) {
+        throw new Error(`Habit '${habit.id}' must have a valid startDate`);
+      }
+      
+      // Set defaults for optional properties
+      if (habit.manualCounter === undefined) habit.manualCounter = null;
+      if (habit.enabled === undefined) habit.enabled = false;
+      if (habit.theme === undefined) habit.theme = 'general';
+      if (habit.customMessages === undefined) habit.customMessages = [];
+      
+      // Validate optional properties
+      if (habit.manualCounter !== null && (typeof habit.manualCounter !== 'number' || habit.manualCounter < 0)) {
+        throw new Error(`manualCounter must be null or a non-negative number for habit '${habit.id}'`);
+      }
+      if (typeof habit.enabled !== 'boolean') {
+        throw new Error(`enabled must be a boolean for habit '${habit.id}'`);
+      }
+      if (!['general', 'growth', 'sobriety', 'minimal', 'custom'].includes(habit.theme)) {
+        throw new Error(`theme must be "general", "growth", "sobriety", "minimal", or "custom" for habit '${habit.id}'`);
+      }
+      if (habit.theme === 'custom' && (!Array.isArray(habit.customMessages) || habit.customMessages.length === 0)) {
+        throw new Error(`customMessages must be a non-empty array when theme is "custom" for habit '${habit.id}'`);
+      }
+    });
     
     if (typeof CONFIG.enableResetByEvent !== 'boolean') {
       throw new Error('enableResetByEvent must be a boolean');
+    }
+    
+    if (typeof CONFIG.enableSkipByEvent !== 'boolean') {
+      throw new Error('enableSkipByEvent must be a boolean');
     }
     
     if (typeof CONFIG.enableLogging !== 'boolean') {
@@ -175,14 +272,6 @@ const CONFIG = {
     
     if (typeof CONFIG.maxCounterDays !== 'number' || CONFIG.maxCounterDays <= 0) {
       throw new Error('maxCounterDays must be a positive number');
-    }
-    
-    if (!['general', 'growth', 'sobriety', 'minimal', 'custom'].includes(CONFIG.theme)) {
-      throw new Error('theme must be "general", "growth", "sobriety", "minimal", or "custom"');
-    }
-    
-    if (CONFIG.theme === 'custom' && (!Array.isArray(CONFIG.customMessages) || CONFIG.customMessages.length === 0)) {
-      throw new Error('customMessages must be a non-empty array when theme is "custom"');
     }
   }
   
@@ -243,68 +332,107 @@ const CONFIG = {
   }
   
   /**
-   * Determine the counter value based on configuration and current state
+   * Determine the counter value for a specific habit
+   * @param {Properties} props - Script properties
+   * @param {Object} habit - The habit configuration
+   * @param {boolean} resetTriggered - Whether a reset was triggered
+   * @param {boolean} skipTriggered - Whether a skip was triggered
+   * @returns {number} The counter value
+   */
+  function determineCounterForHabit(props, habit, resetTriggered, skipTriggered) {
+    if (habit.manualCounter !== null) {
+      log(`Using manual counter for habit ${habit.id}: ${habit.manualCounter}`);
+      return habit.manualCounter;
+    }
+    
+    if (resetTriggered) {
+      log(`Reset triggered for habit ${habit.id}, starting counter at 1`);
+      return 1;
+    }
+    
+    if (skipTriggered) {
+      log(`Skip triggered for habit ${habit.id}, keeping counter at current value`);
+      return parseInt(props.getProperty(`HABIT_COUNTER_${habit.id}`) || "0", 10);
+    }
+    
+    const currentCount = parseInt(props.getProperty(`HABIT_COUNTER_${habit.id}`) || "0", 10);
+    
+    // If this is the first time running for this habit, calculate days since start date
+    if (currentCount === 0) {
+      const today = new Date();
+      const startDate = habit.startDate;
+      const daysSinceStart = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
+      
+      // Ensure we don't start with a negative number
+      const initialCount = Math.max(1, daysSinceStart + 1);
+      log(`First time running habit ${habit.id}, calculating initial count: ${initialCount} days since ${startDate.toISOString().split('T')[0]}`);
+      return initialCount;
+    }
+    
+    const newCount = currentCount + 1;
+    log(`Incrementing counter for habit ${habit.id} from ${currentCount} to ${newCount}`);
+    return newCount;
+  }
+  
+  /**
+   * Determine the counter value based on configuration and current state (legacy function)
    * @param {Properties} props - Script properties
    * @param {boolean} resetTriggered - Whether a reset was triggered
    * @param {boolean} skipTriggered - Whether a skip was triggered
    * @returns {number} The counter value
    */
   function determineCounter(props, resetTriggered, skipTriggered) {
-    if (CONFIG.manualCounter !== null) {
-      log(`Using manual counter: ${CONFIG.manualCounter}`);
-      return CONFIG.manualCounter;
-    }
-    
-    if (resetTriggered) {
-      log('Reset triggered, starting counter at 1');
-      return 1;
-    }
-    
-    if (skipTriggered) {
-      log('Skip triggered, keeping counter at current value');
-      return parseInt(props.getProperty("HABIT_COUNTER") || "0", 10);
-    }
-    
-    const currentCount = parseInt(props.getProperty("HABIT_COUNTER") || "0", 10);
-    const newCount = currentCount + 1;
-    log(`Incrementing counter from ${currentCount} to ${newCount}`);
-    return newCount;
+    // Legacy function for backward compatibility
+    const habit = CONFIG.habits[0];
+    return determineCounterForHabit(props, habit, resetTriggered, skipTriggered);
   }
   
   /**
-   * Get habit message based on day count and theme
+   * Get habit message for a specific habit based on day count and theme
    * @param {number} day - The day count
+   * @param {Object} habit - The habit configuration
    * @returns {string} The appropriate message
    */
-  function getHabitMessage(day) {
+  function getHabitMessageForHabit(day, habit) {
     let messages;
     
-    if (CONFIG.theme === 'custom') {
-      messages = CONFIG.customMessages;
+    if (habit.theme === 'custom') {
+      messages = habit.customMessages;
     } else {
-      messages = HABIT_THEMES[CONFIG.theme];
+      messages = HABIT_THEMES[habit.theme];
     }
     
     // For milestone days, use special messages
-    const milestoneMessage = getMilestoneMessage(day);
+    const milestoneMessage = getMilestoneMessageForHabit(day, habit);
     if (milestoneMessage) {
       return milestoneMessage;
     }
     
     // Otherwise, cycle through theme messages
-    // return messages[day % messages.length];
     return messages[(day - 1) % messages.length];
   }
   
   /**
-   * Get special milestone message for significant days
+   * Get habit message based on day count and theme (legacy function)
    * @param {number} day - The day count
+   * @returns {string} The appropriate message
+   */
+  function getHabitMessage(day) {
+    // Legacy function for backward compatibility
+    const habit = CONFIG.habits[0];
+    return getHabitMessageForHabit(day, habit);
+  }
+  
+  /**
+   * Get special milestone message for significant days for a specific habit
+   * @param {number} day - The day count
+   * @param {Object} habit - The habit configuration
    * @returns {string|null} Milestone message or null if not a milestone
    */
-  function getMilestoneMessage(day) {
+  function getMilestoneMessageForHabit(day, habit) {
     let milestones;
     
-    if (CONFIG.theme === 'sobriety') {
+    if (habit.theme === 'sobriety') {
       milestones = {
         1: "First Day Sober 🌱",
         3: "Three Days Strong 💪",
@@ -349,6 +477,17 @@ const CONFIG = {
   }
   
   /**
+   * Get special milestone message for significant days (legacy function)
+   * @param {number} day - The day count
+   * @returns {string|null} Milestone message or null if not a milestone
+   */
+  function getMilestoneMessage(day) {
+    // Legacy function for backward compatibility
+    const habit = CONFIG.habits[0];
+    return getMilestoneMessageForHabit(day, habit);
+  }
+  
+  /**
    * Get calendar by name with better error handling
    * @param {string} name - Calendar name
    * @returns {Calendar|null} The calendar object or null if not found
@@ -387,73 +526,220 @@ const CONFIG = {
   }
   
   /**
-   * Get current counter value
+   * Get current counter value for a specific habit
+   * @param {string} habitId - The habit ID
+   * @returns {number} Current counter value
+   */
+  function getCurrentCounterForHabit(habitId) {
+    const props = PropertiesService.getScriptProperties();
+    return parseInt(props.getProperty(`HABIT_COUNTER_${habitId}`) || "0", 10);
+  }
+  
+  /**
+   * Get current counter value (legacy function)
    * @returns {number} Current counter value
    */
   function getCurrentCounter() {
-    const props = PropertiesService.getScriptProperties();
-    return parseInt(props.getProperty("HABIT_COUNTER") || "0", 10);
+    // Legacy function for backward compatibility
+    const habit = CONFIG.habits[0];
+    return getCurrentCounterForHabit(habit.id);
   }
   
   /**
-   * Reset counter to specified value
+   * Reset counter for a specific habit to specified value
+   * @param {string} habitId - The habit ID
+   * @param {number} newValue - New counter value (default: 0)
+   */
+  function resetCounterForHabit(habitId, newValue = 0) {
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty(`HABIT_COUNTER_${habitId}`, newValue.toString());
+    log(`Counter reset for habit ${habitId} to ${newValue}`);
+  }
+  
+  /**
+   * Reset counter to specified value (legacy function)
    * @param {number} newValue - New counter value (default: 0)
    */
   function resetCounter(newValue = 0) {
-    const props = PropertiesService.getScriptProperties();
-    props.setProperty("HABIT_COUNTER", newValue.toString());
-    log(`Counter reset to ${newValue}`);
+    // Legacy function for backward compatibility
+    const habit = CONFIG.habits[0];
+    resetCounterForHabit(habit.id, newValue);
   }
   
   /**
-   * Get statistics about the tracking
+   * Get statistics about the tracking for all habits
    * @returns {Object} Statistics object
    */
   function getTrackingStats() {
-    const props = PropertiesService.getScriptProperties();
-    const currentCount = getCurrentCounter();
-    const startDate = CONFIG.startDate;
-    const today = new Date();
-    const daysSinceStart = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
-    
-    return {
-      currentCount: currentCount,
-      habitName: CONFIG.habitName,
-      startDate: startDate.toISOString().split('T')[0],
-      daysSinceStart: daysSinceStart,
+    const stats = {
+      habits: [],
       calendarName: CONFIG.calendarName,
-      theme: CONFIG.theme,
-      config: {
-        manualCounter: CONFIG.manualCounter,
-        enableResetByEvent: CONFIG.enableResetByEvent,
-        enableLogging: CONFIG.enableLogging
-      }
+      totalHabits: CONFIG.habits.length,
+      enabledHabits: CONFIG.habits.filter(h => h.enabled).length
     };
+    
+    for (const habit of CONFIG.habits) {
+      const currentCount = getCurrentCounterForHabit(habit.id);
+      const startDate = habit.startDate;
+      const today = new Date();
+      const daysSinceStart = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
+      
+      stats.habits.push({
+        id: habit.id,
+        name: habit.name,
+        currentCount: currentCount,
+        startDate: startDate.toISOString().split('T')[0],
+        daysSinceStart: daysSinceStart,
+        theme: habit.theme,
+        enabled: habit.enabled,
+        manualCounter: habit.manualCounter
+      });
+    }
+    
+    return stats;
   }
   
   /**
-   * Set custom messages for custom theme
+   * Set custom messages for custom theme for a specific habit
+   * @param {string} habitId - The habit ID
    * @param {string[]} messages - Array of custom messages
    */
-  function setCustomMessages(messages) {
+  function setCustomMessagesForHabit(habitId, messages) {
     if (!Array.isArray(messages) || messages.length === 0) {
       throw new Error('messages must be a non-empty array');
     }
-    CONFIG.customMessages = messages;
-    CONFIG.theme = 'custom';
-    log(`Set ${messages.length} custom messages`);
+    
+    const habit = CONFIG.habits.find(h => h.id === habitId);
+    if (!habit) {
+      throw new Error(`Habit with id '${habitId}' not found`);
+    }
+    
+    habit.customMessages = messages;
+    habit.theme = 'custom';
+    log(`Set ${messages.length} custom messages for habit ${habitId}`);
   }
   
   /**
-   * Change theme
+   * Set custom messages for custom theme (legacy function)
+   * @param {string[]} messages - Array of custom messages
+   */
+  function setCustomMessages(messages) {
+    // Legacy function for backward compatibility
+    const habit = CONFIG.habits[0];
+    setCustomMessagesForHabit(habit.id, messages);
+  }
+  
+  /**
+   * Change theme for a specific habit
+   * @param {string} habitId - The habit ID
    * @param {string} theme - Theme name: "general", "growth", "sobriety", "minimal", or "custom"
    */
-  function changeTheme(theme) {
+  function changeThemeForHabit(habitId, theme) {
     if (!['general', 'growth', 'sobriety', 'minimal', 'custom'].includes(theme)) {
       throw new Error('theme must be "general", "growth", "sobriety", "minimal", or "custom"');
     }
-    CONFIG.theme = theme;
-    log(`Changed theme to: ${theme}`);
+    
+    const habit = CONFIG.habits.find(h => h.id === habitId);
+    if (!habit) {
+      throw new Error(`Habit with id '${habitId}' not found`);
+    }
+    
+    habit.theme = theme;
+    log(`Changed theme for habit ${habitId} to: ${theme}`);
+  }
+  
+  /**
+   * Change theme (legacy function)
+   * @param {string} theme - Theme name: "general", "growth", "sobriety", "minimal", or "custom"
+   */
+  function changeTheme(theme) {
+    // Legacy function for backward compatibility
+    const habit = CONFIG.habits[0];
+    changeThemeForHabit(habit.id, theme);
+  }
+  
+  /**
+   * Add a new habit to the configuration
+   * @param {Object} habitConfig - The habit configuration object
+   */
+  function addHabit(habitConfig) {
+    if (!habitConfig.id || typeof habitConfig.id !== 'string') {
+      throw new Error('Habit must have an id');
+    }
+    
+    if (!habitConfig.name || typeof habitConfig.name !== 'string') {
+      throw new Error('Habit must have a name');
+    }
+    
+    if (!habitConfig.startDate || !(habitConfig.startDate instanceof Date)) {
+      throw new Error('Habit must have a valid startDate');
+    }
+    
+    // Check if habit with this ID already exists
+    const existingHabit = CONFIG.habits.find(h => h.id === habitConfig.id);
+    if (existingHabit) {
+      throw new Error(`Habit with id '${habitConfig.id}' already exists`);
+    }
+    
+    // Set defaults for optional fields
+    const newHabit = {
+      id: habitConfig.id,
+      name: habitConfig.name,
+      startDate: habitConfig.startDate,
+      manualCounter: habitConfig.manualCounter || null,
+      theme: habitConfig.theme || 'general',
+      customMessages: habitConfig.customMessages || [],
+      enabled: habitConfig.enabled !== undefined ? habitConfig.enabled : true
+    };
+    
+    CONFIG.habits.push(newHabit);
+    log(`Added new habit: ${newHabit.name} (${newHabit.id})`);
+  }
+  
+  /**
+   * Remove a habit from the configuration
+   * @param {string} habitId - The habit ID to remove
+   */
+  function removeHabit(habitId) {
+    const index = CONFIG.habits.findIndex(h => h.id === habitId);
+    if (index === -1) {
+      throw new Error(`Habit with id '${habitId}' not found`);
+    }
+    
+    const removedHabit = CONFIG.habits.splice(index, 1)[0];
+    log(`Removed habit: ${removedHabit.name} (${habitId})`);
+  }
+  
+  /**
+   * Enable or disable a habit
+   * @param {string} habitId - The habit ID
+   * @param {boolean} enabled - Whether to enable or disable the habit
+   */
+  function setHabitEnabled(habitId, enabled) {
+    const habit = CONFIG.habits.find(h => h.id === habitId);
+    if (!habit) {
+      throw new Error(`Habit with id '${habitId}' not found`);
+    }
+    
+    habit.enabled = enabled;
+    log(`${enabled ? 'Enabled' : 'Disabled'} habit: ${habit.name} (${habitId})`);
+  }
+  
+  /**
+   * Get a specific habit configuration
+   * @param {string} habitId - The habit ID
+   * @returns {Object|null} The habit configuration or null if not found
+   */
+  function getHabit(habitId) {
+    return CONFIG.habits.find(h => h.id === habitId) || null;
+  }
+  
+  /**
+   * Get all habit configurations
+   * @returns {Object[]} Array of habit configurations
+   */
+  function getAllHabits() {
+    return CONFIG.habits;
   }
 
 
@@ -507,13 +793,36 @@ function sendWeeklySummary() {
   // Fetch all‐day events containing "Day" in title
   const events = calendar
     .getEvents(monday, nextMonday)
-    .filter(ev => ev.isAllDayEvent() && ev.getTitle().match(/^Day\s+\d+/));
+    .filter(ev => ev.isAllDayEvent() && ev.getTitle().match(/Day\s+\d+/));
+
+  // Group events by habit
+  const habitEvents = {};
+  for (const habit of CONFIG.habits) {
+    habitEvents[habit.id] = events.filter(ev => ev.getTitle().includes(habit.name));
+  }
 
   // Analytics
   const totalDays = 7;
-  const tracked = events.length;
-  const missed = totalDays - tracked;
-  const titles = events.map(ev => ev.getTitle()).join('\n');
+  let totalTracked = 0;
+  let allTitles = [];
+  
+  let summaryText = `Weekly Habit Summary (${formatDate(monday)} – ${formatDate(new Date(nextMonday - 1))})\n\n`;
+  
+  for (const habit of CONFIG.habits) {
+    if (!habit.enabled) continue;
+    
+    const tracked = habitEvents[habit.id]?.length || 0;
+    const missed = totalDays - tracked;
+    totalTracked += tracked;
+    
+    const titles = habitEvents[habit.id]?.map(ev => ev.getTitle()) || [];
+    allTitles = allTitles.concat(titles);
+    
+    summaryText += `${habit.name}:\n`;
+    summaryText += `• Tracked days: ${tracked}\n`;
+    summaryText += `• Missed days: ${missed}\n`;
+    summaryText += `• Current streak: ${getCurrentCounterForHabit(habit.id)}\n\n`;
+  }
 
   // Detect resets or skips
   const resets = calendar
@@ -523,27 +832,21 @@ function sendWeeklySummary() {
     .getEvents(monday, nextMonday, { search: 'SKIP' })
     .filter(ev => ev.isAllDayEvent()).length;
 
-  // Build email body
-  const mailBody = `
-Weekly Habit Summary (${formatDate(monday)} – ${formatDate(new Date(nextMonday - 1))})
+  summaryText += `Overall:\n`;
+  summaryText += `• Total tracked days: ${totalTracked}\n`;
+  summaryText += `• Skips logged: ${skips}\n`;
+  summaryText += `• Resets triggered: ${resets}\n\n`;
 
-• Tracked days: ${tracked}
-• Missed days: ${missed}
-• Skips logged: ${skips}
-• Resets triggered: ${resets}
-
-Entries:
-${titles || 'No entries found'}
-
-Keep it up!
-  `.trim();
+  summaryText += `All Entries:\n`;
+  summaryText += `${allTitles.join('\n') || 'No entries found'}\n\n`;
+  summaryText += `Keep it up!`;
 
   // Send to yourself
   const email = Session.getActiveUser().getEmail();
   MailApp.sendEmail({
     to:        email,
     subject:   `🗓️ Weekly Habit Report: ${formatDate(monday)}`,
-    body:      mailBody
+    body:      summaryText
   });
 }
 
