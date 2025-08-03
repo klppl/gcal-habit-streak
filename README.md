@@ -48,7 +48,23 @@ const CONFIG = {
   enableResetByEvent: true,            // Enable RESET detection
   enableSkipByEvent: true,             // Enable SKIP detection
   enableLogging: true,                 // Enable console logging
-  maxCounterDays: 10000               // Safety limit
+  maxCounterDays: 10000,              // Safety limit
+  milestones: {                        // Customizable milestone messages
+    sobriety: {
+      1: "First Day Sober 🌱",
+      7: "One Week Sober 🎉",
+      30: "One Month Sober 📅",
+      100: "100 Days Sober 💎",
+      365: "One Year Sober 🎊"
+    },
+    default: {
+      1: "First Step Forward 🚀",
+      7: "Week of Consistency 📅",
+      30: "Month of Progress 📊",
+      100: "Century Club 💎",
+      365: "Year of Transformation 🎉"
+    }
+  }
 };
 ```
 
@@ -112,6 +128,33 @@ setCustomMessagesForHabit("exercise", [
   "Building Strength 🔥"
 ]);
 ```
+
+### Customizing Milestones
+
+You can customize milestone messages in the CONFIG:
+
+```javascript
+milestones: {
+  default: {
+    1: "First Step Forward 🚀",
+    7: "Week of Consistency 📅",
+    30: "Month of Progress 📊",
+    100: "Century Club 💎",
+    365: "Year of Transformation 🎉"
+  },
+  sobriety: {
+    1: "First Day Sober 🌱",
+    7: "One Week Sober 🎉",
+    30: "One Month Sober 📅",
+    100: "100 Days Sober 💎",
+    365: "One Year Sober 🎊"
+  }
+}
+```
+
+- **default**: Used for general, growth, and minimal themes
+- **sobriety**: Used for sobriety theme
+- Add any day number as a key with your custom message
 
 ### Reset and Skip Events
 

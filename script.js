@@ -1,23 +1,58 @@
 // === CONFIGURATION ===
 const CONFIG = {
     calendarName: "Habits",              // Name of the calendar to use
-    habits: [                            // Array of habits to track
-      // **Just the essentials** per habit:
+    habits: [
       { id: "general",    name: "General Habit",   startDate: "2025-01-01", enabled: true },
       { id: "exercise",   name: "Daily Exercise",  startDate: "2024-12-01", theme: "growth", enabled: false },
       { id: "reading",    name: "Reading",         startDate: "2024-11-15", enabled: false },
       { id: "meditation", name: "Daily Meditation", startDate: "2024-12-15", theme: "growth", enabled: false },
       { id: "sobriety",   name: "Sobriety",        startDate: "2024-11-01", theme: "sobriety", enabled: false },
-      // Add more habits here...
     ],
     enableResetByEvent: true,            // Set to false if you want to disable RESET detection
     enableSkipByEvent: true,             // Set to false if you want to disable SKIP detection
     enableLogging: true,                 // Enable console logging for debugging
     maxCounterDays: 10000,              // Safety limit to prevent runaway counters
+    milestones: {                        // Customizable milestone messages
+      sobriety: {
+        1: "First Day Sober 🌱",
+        3: "Three Days Strong 💪",
+        7: "One Week Sober 🎉",
+        14: "Two Weeks Sober 🏆",
+        21: "Three Weeks Sober 🧠",
+        30: "One Month Sober 📅",
+        60: "Two Months Sober 🔥",
+        90: "Three Months Sober 🎯",
+        100: "100 Days Sober 💎",
+        180: "Six Months Sober 🦸",
+        365: "One Year Sober 🎊",
+        500: "500 Days Sober ⚡",
+        730: "Two Years Sober 🎯",
+        1000: "1000 Days Sober 👑",
+        1095: "Three Years Sober 🌳",
+        1825: "Five Years Sober 🌟",
+        3650: "Ten Years Sober 🎪"
+      },
+      default: {
+        1: "First Step Forward 🚀",
+        7: "Week of Consistency 📅",
+        14: "Two Weeks Strong 💪",
+        21: "Habit Formation 🧠",
+        30: "Month of Progress 📊",
+        60: "Two Months Deep 🔥",
+        90: "Quarter of Excellence 🏆",
+        100: "Century Club 💎",
+        180: "Half Year Hero 🦸",
+        365: "Year of Transformation 🎉",
+        500: "500 Days of Power ⚡",
+        730: "Two Years Strong 🎯",
+        1000: "Thousand Day Club 👑",
+        1095: "Three Years of Growth 🌳",
+        1825: "Five Years of Excellence 🌟",
+        3650: "Decade of Dedication 🎪"
+      }
+    }
   };
   // =======================
-  
-  // Habit themes and their messages
   const HABIT_THEMES = {
     general: [
       "Kept the streak alive 🔁",
@@ -88,18 +123,13 @@ const CONFIG = {
       // Validate configuration
       validateConfig();
       
-      const calendar = getCalendarByName(CONFIG.calendarName);
-      if (!calendar) {
-        throw new Error(`Calendar '${CONFIG.calendarName}' not found. Available calendars: ${getAvailableCalendarNames().join(', ')}`);
-      }
+      const calendar = ensureCalendar(CONFIG.calendarName);
   
-      const today = new Date();
-      const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      const endOfDay = new Date(startOfDay);
-      endOfDay.setDate(endOfDay.getDate() + 1); // all-day events are exclusive on end date
+      const { start: startOfDay, end: endOfDay } = getDayBounds();
   
       const props = PropertiesService.getScriptProperties();
       const results = [];
+      const newCounters = {};
       
       // Process each enabled habit
       for (const habit of CONFIG.habits) {
@@ -109,7 +139,7 @@ const CONFIG = {
         }
         
         try {
-          const result = createHabitEventForDay(calendar, habit, startOfDay, endOfDay, props);
+          const result = createHabitEventForDay(calendar, habit, startOfDay, endOfDay, props, newCounters);
           results.push(result);
         } catch (error) {
           log(`Error processing habit ${habit.id}: ${error.message}`);
@@ -119,6 +149,11 @@ const CONFIG = {
             error: error.message
           });
         }
+      }
+      
+      if (Object.keys(newCounters).length > 0) {
+        props.setProperties(newCounters);
+        log(`Updated ${Object.keys(newCounters).length} counters in batch`);
       }
       
       const successfulResults = results.filter(r => r.success);
@@ -148,17 +183,11 @@ const CONFIG = {
    * @param {Date} startOfDay - Start of the day
    * @param {Date} endOfDay - End of the day
    * @param {Properties} props - Script properties
+   * @param {Object} newCounters - Object to collect counter updates
    * @returns {Object} Result object for this habit
    */
-  function createHabitEventForDay(calendar, habit, startOfDay, endOfDay, props) {
-    // Check if event already exists for this habit today
-    const existingEvents = calendar.getEvents(startOfDay, endOfDay);
-    const habitEvents = existingEvents.filter(event => 
-      event.isAllDayEvent() && 
-      event.getTitle().includes("Day") && 
-      event.getTitle().includes("–") &&
-      event.getTitle().includes(habit.name)
-    );
+  function createHabitEventForDay(calendar, habit, startOfDay, endOfDay, props, newCounters) {
+    const habitEvents = getHabitEvents(calendar, startOfDay, endOfDay, habit);
     
     if (habitEvents.length > 0) {
       log(`Event already exists for habit ${habit.id} today: ${habitEvents[0].getTitle()}`);
@@ -170,7 +199,6 @@ const CONFIG = {
       };
     }
   
-    // Detect "RESET" or "SKIP" events if enabled
     let resetTriggered = false;
     let skipTriggered = false;
     if (CONFIG.enableResetByEvent) {
@@ -180,10 +208,8 @@ const CONFIG = {
       skipTriggered = processSkipEvents(calendar, startOfDay, endOfDay);
     }
   
-    // Determine counter for this habit
     const count = determineCounterForHabit(props, habit, resetTriggered, skipTriggered);
       
-    // Validate counter
     if (count > CONFIG.maxCounterDays) {
       throw new Error(`Counter exceeded maximum limit of ${CONFIG.maxCounterDays} days for habit ${habit.id}`);
     }
@@ -192,7 +218,9 @@ const CONFIG = {
     const title = `${habit.name} - Day ${count} – ${message}`;
   
     const event = calendar.createAllDayEvent(title, startOfDay, endOfDay);
-    props.setProperty(`HABIT_COUNTER_${habit.id}`, count.toString());
+    event.setTag('habitId', habit.id);
+    
+    newCounters[`HABIT_COUNTER_${habit.id}`] = count.toString();
     
     log(`Successfully created event for habit ${habit.id}: ${title}`);
     
@@ -226,24 +254,25 @@ const CONFIG = {
         throw new Error(`Habit '${habit.id}' must have a name`);
       }
       
-      // Handle startDate (can be string or Date)
       if (!habit.startDate) {
         throw new Error(`Habit '${habit.id}' must have a startDate`);
       }
       if (typeof habit.startDate === 'string') {
-        habit.startDate = new Date(habit.startDate);
+        try {
+          habit.startDate = parseDate(habit.startDate);
+        } catch (error) {
+          throw new Error(`Habit '${habit.id}' has invalid startDate format. Use YYYY-MM-DD (e.g., "2024-12-01")`);
+        }
       }
       if (!(habit.startDate instanceof Date) || isNaN(habit.startDate.getTime())) {
         throw new Error(`Habit '${habit.id}' must have a valid startDate`);
       }
       
-      // Set defaults for optional properties
       if (habit.manualCounter === undefined) habit.manualCounter = null;
       if (habit.enabled === undefined) habit.enabled = false;
       if (habit.theme === undefined) habit.theme = 'general';
       if (habit.customMessages === undefined) habit.customMessages = [];
       
-      // Validate optional properties
       if (habit.manualCounter !== null && (typeof habit.manualCounter !== 'number' || habit.manualCounter < 0)) {
         throw new Error(`manualCounter must be null or a non-negative number for habit '${habit.id}'`);
       }
@@ -272,6 +301,18 @@ const CONFIG = {
     
     if (typeof CONFIG.maxCounterDays !== 'number' || CONFIG.maxCounterDays <= 0) {
       throw new Error('maxCounterDays must be a positive number');
+    }
+    
+    if (!CONFIG.milestones || typeof CONFIG.milestones !== 'object') {
+      throw new Error('milestones must be an object');
+    }
+    
+    if (!CONFIG.milestones.default || typeof CONFIG.milestones.default !== 'object') {
+      throw new Error('milestones.default must be an object');
+    }
+    
+    if (!CONFIG.milestones.sobriety || typeof CONFIG.milestones.sobriety !== 'object') {
+      throw new Error('milestones.sobriety must be an object');
     }
   }
   
@@ -357,15 +398,13 @@ const CONFIG = {
     
     const currentCount = parseInt(props.getProperty(`HABIT_COUNTER_${habit.id}`) || "0", 10);
     
-    // If this is the first time running for this habit, calculate days since start date
     if (currentCount === 0) {
-      const today = new Date();
+      const { start: today } = getDayBounds();
       const startDate = habit.startDate;
       const daysSinceStart = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
       
-      // Ensure we don't start with a negative number
       const initialCount = Math.max(1, daysSinceStart + 1);
-      log(`First time running habit ${habit.id}, calculating initial count: ${initialCount} days since ${startDate.toISOString().split('T')[0]}`);
+      log(`First time running habit ${habit.id}, calculating initial count: ${initialCount} days since ${formatDate(startDate)}`);
       return initialCount;
     }
     
@@ -430,50 +469,9 @@ const CONFIG = {
    * @returns {string|null} Milestone message or null if not a milestone
    */
   function getMilestoneMessageForHabit(day, habit) {
-    let milestones;
+    const milestoneSet = habit.theme === 'sobriety' ? CONFIG.milestones.sobriety : CONFIG.milestones.default;
     
-    if (habit.theme === 'sobriety') {
-      milestones = {
-        1: "First Day Sober 🌱",
-        3: "Three Days Strong 💪",
-        7: "One Week Sober 🎉",
-        14: "Two Weeks Sober 🏆",
-        21: "Three Weeks Sober 🧠",
-        30: "One Month Sober 📅",
-        60: "Two Months Sober 🔥",
-        90: "Three Months Sober 🎯",
-        100: "100 Days Sober 💎",
-        180: "Six Months Sober 🦸",
-        365: "One Year Sober 🎊",
-        500: "500 Days Sober ⚡",
-        730: "Two Years Sober 🎯",
-        1000: "1000 Days Sober 👑",
-        1095: "Three Years Sober 🌳",
-        1825: "Five Years Sober 🌟",
-        3650: "Ten Years Sober 🎪"
-      };
-    } else {
-      milestones = {
-        1: "First Step Forward 🚀",
-        7: "Week of Consistency 📅",
-        14: "Two Weeks Strong 💪",
-        21: "Habit Formation 🧠",
-        30: "Month of Progress 📊",
-        60: "Two Months Deep 🔥",
-        90: "Quarter of Excellence 🏆",
-        100: "Century Club 💎",
-        180: "Half Year Hero 🦸",
-        365: "Year of Transformation 🎉",
-        500: "500 Days of Power ⚡",
-        730: "Two Years Strong 🎯",
-        1000: "Thousand Day Club 👑",
-        1095: "Three Years of Growth 🌳",
-        1825: "Five Years of Excellence 🌟",
-        3650: "Decade of Dedication 🎪"
-      };
-    }
-    
-    return milestones[day] || null;
+    return milestoneSet[day] || null;
   }
   
   /**
@@ -488,14 +486,39 @@ const CONFIG = {
   }
   
   /**
-   * Get calendar by name with better error handling
+   * Ensure calendar exists and return it, or throw descriptive error
+   * @param {string} name - Calendar name
+   * @returns {Calendar} The calendar object
+   * @throws {Error} If calendar not found
+   */
+  function ensureCalendar(name) {
+    try {
+      const calendars = CalendarApp.getAllCalendars();
+      const calendar = calendars.find(cal => cal.getName() === name);
+      
+      if (!calendar) {
+        const availableCalendars = calendars.map(cal => cal.getName()).join(', ');
+        throw new Error(`Calendar "${name}" not found. Available calendars: ${availableCalendars}`);
+      }
+      
+      return calendar;
+    } catch (error) {
+      if (error.message.includes('Calendar "')) {
+        throw error; // Re-throw our custom error
+      }
+      log(`Error getting calendar by name: ${error.message}`);
+      throw new Error(`Error accessing calendar "${name}": ${error.message}`);
+    }
+  }
+  
+  /**
+   * Get calendar by name with better error handling (legacy function)
    * @param {string} name - Calendar name
    * @returns {Calendar|null} The calendar object or null if not found
    */
   function getCalendarByName(name) {
     try {
-      const calendars = CalendarApp.getAllCalendars();
-      return calendars.find(cal => cal.getName() === name) || null;
+      return ensureCalendar(name);
     } catch (error) {
       log(`Error getting calendar by name: ${error.message}`);
       return null;
@@ -525,6 +548,80 @@ const CONFIG = {
     }
   }
   
+  const TZ = Session.getScriptTimeZone();
+  
+  /**
+   * Get day bounds (start and end) for a specific day with proper timezone handling
+   * @param {number} offsetDays - Days offset from today (0 = today, -1 = yesterday, etc.)
+   * @returns {Object} Object with start and end Date objects
+   */
+  function getDayBounds(offsetDays = 0) {
+    const now = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
+    const day = new Date(now);
+    day.setDate(day.getDate() + offsetDays);
+    const start = new Date(day);
+    const end = new Date(day);
+    end.setDate(end.getDate() + 1);
+    return { start, end };
+  }
+  
+  /**
+   * Parse date string with timezone awareness
+   * @param {string} dateString - Date string in YYYY-MM-DD format
+   * @returns {Date} Date object in script timezone
+   */
+  function parseDate(dateString) {
+    return Utilities.parseDate(dateString, TZ, 'yyyy-MM-dd');
+  }
+  
+  /**
+   * Format date for display
+   * @param {Date} date - Date to format
+   * @returns {string} Formatted date string
+   */
+  function formatDate(date) {
+    return Utilities.formatDate(date, TZ, 'yyyy-MM-dd');
+  }
+  
+  /**
+   * Get habit events with fallback for legacy events without tags
+   * @param {Calendar} calendar - The calendar object
+   * @param {Date} startOfDay - Start of the day
+   * @param {Date} endOfDay - End of the day
+   * @param {Object} habit - The habit configuration
+   * @returns {Array} Array of habit events
+   */
+  function getHabitEvents(calendar, startOfDay, endOfDay, habit) {
+    const existingEvents = calendar.getEvents(startOfDay, endOfDay);
+    
+    const taggedEvents = existingEvents.filter(event => 
+      event.isAllDayEvent() && 
+      event.getTag('habitId') === habit.id
+    );
+    
+    if (taggedEvents.length > 0) {
+      return taggedEvents;
+    }
+    
+    const legacyEvents = existingEvents.filter(event => 
+      event.isAllDayEvent() && 
+      event.getTitle().includes("Day") && 
+      event.getTitle().includes("–") &&
+      event.getTitle().includes(habit.name)
+    );
+    
+    legacyEvents.forEach(event => {
+      try {
+        event.setTag('habitId', habit.id);
+        log(`Added tag to legacy event: ${event.getTitle()}`);
+      } catch (error) {
+        log(`Could not add tag to legacy event: ${error.message}`);
+      }
+    });
+    
+    return legacyEvents;
+  }
+  
   /**
    * Get current counter value for a specific habit
    * @param {string} habitId - The habit ID
@@ -549,11 +646,17 @@ const CONFIG = {
    * Reset counter for a specific habit to specified value
    * @param {string} habitId - The habit ID
    * @param {number} newValue - New counter value (default: 0)
+   * @param {Object} batchUpdates - Optional object to collect updates for batch writing
    */
-  function resetCounterForHabit(habitId, newValue = 0) {
-    const props = PropertiesService.getScriptProperties();
-    props.setProperty(`HABIT_COUNTER_${habitId}`, newValue.toString());
-    log(`Counter reset for habit ${habitId} to ${newValue}`);
+  function resetCounterForHabit(habitId, newValue = 0, batchUpdates = null) {
+    if (batchUpdates) {
+      batchUpdates[`HABIT_COUNTER_${habitId}`] = newValue.toString();
+      log(`Counter reset for habit ${habitId} to ${newValue} (batched)`);
+    } else {
+      const props = PropertiesService.getScriptProperties();
+      props.setProperty(`HABIT_COUNTER_${habitId}`, newValue.toString());
+      log(`Counter reset for habit ${habitId} to ${newValue}`);
+    }
   }
   
   /**
@@ -581,14 +684,14 @@ const CONFIG = {
     for (const habit of CONFIG.habits) {
       const currentCount = getCurrentCounterForHabit(habit.id);
       const startDate = habit.startDate;
-      const today = new Date();
+      const { start: today } = getDayBounds();
       const daysSinceStart = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
       
       stats.habits.push({
         id: habit.id,
         name: habit.name,
         currentCount: currentCount,
-        startDate: startDate.toISOString().split('T')[0],
+        startDate: formatDate(startDate),
         daysSinceStart: daysSinceStart,
         theme: habit.theme,
         enabled: habit.enabled,
@@ -778,30 +881,20 @@ function onOpen(e) {
  */
 function sendWeeklySummary() {
   const CAL_NAME = CONFIG.calendarName;
-  const calendar = getCalendarByName(CAL_NAME);
-  if (!calendar) throw new Error(`Calendar "${CAL_NAME}" not found.`);
+  const calendar = ensureCalendar(CAL_NAME);
 
-  // Define last week range (Mon 00:00 → next Mon 00:00)
-  const now = new Date();
-  const todayDow = now.getDay(); // 0=Sun,1=Mon...
-  // Compute most recent Monday
+  const { start: today } = getDayBounds();
+  const todayDow = today.getDay(); // 0=Sun,1=Mon...
   const daysSinceMon = (todayDow + 6) % 7;
-  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMon);
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysSinceMon);
   const nextMonday = new Date(monday);
   nextMonday.setDate(monday.getDate() + 7);
 
-  // Fetch all‐day events containing "Day" in title
-  const events = calendar
-    .getEvents(monday, nextMonday)
-    .filter(ev => ev.isAllDayEvent() && ev.getTitle().match(/Day\s+\d+/));
-
-  // Group events by habit
   const habitEvents = {};
   for (const habit of CONFIG.habits) {
-    habitEvents[habit.id] = events.filter(ev => ev.getTitle().includes(habit.name));
+    habitEvents[habit.id] = getHabitEvents(calendar, monday, nextMonday, habit);
   }
 
-  // Analytics
   const totalDays = 7;
   let totalTracked = 0;
   let allTitles = [];
@@ -824,7 +917,6 @@ function sendWeeklySummary() {
     summaryText += `• Current streak: ${getCurrentCounterForHabit(habit.id)}\n\n`;
   }
 
-  // Detect resets or skips
   const resets = calendar
     .getEvents(monday, nextMonday, { search: 'RESET' })
     .filter(ev => ev.isAllDayEvent()).length;
@@ -850,7 +942,7 @@ function sendWeeklySummary() {
   });
 }
 
-/** Helper: YYYY‑MM‑DD */
+/** Helper: YYYY‑MM‑DD (legacy function) */
 function formatDate(d) {
   return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy‑MM‑dd');
 }
