@@ -414,19 +414,6 @@ const CONFIG = {
   }
   
   /**
-   * Determine the counter value based on configuration and current state (legacy function)
-   * @param {Properties} props - Script properties
-   * @param {boolean} resetTriggered - Whether a reset was triggered
-   * @param {boolean} skipTriggered - Whether a skip was triggered
-   * @returns {number} The counter value
-   */
-  function determineCounter(props, resetTriggered, skipTriggered) {
-    // Legacy function for backward compatibility
-    const habit = CONFIG.habits[0];
-    return determineCounterForHabit(props, habit, resetTriggered, skipTriggered);
-  }
-  
-  /**
    * Get habit message for a specific habit based on day count and theme
    * @param {number} day - The day count
    * @param {Object} habit - The habit configuration
@@ -452,17 +439,6 @@ const CONFIG = {
   }
   
   /**
-   * Get habit message based on day count and theme (legacy function)
-   * @param {number} day - The day count
-   * @returns {string} The appropriate message
-   */
-  function getHabitMessage(day) {
-    // Legacy function for backward compatibility
-    const habit = CONFIG.habits[0];
-    return getHabitMessageForHabit(day, habit);
-  }
-  
-  /**
    * Get special milestone message for significant days for a specific habit
    * @param {number} day - The day count
    * @param {Object} habit - The habit configuration
@@ -472,17 +448,6 @@ const CONFIG = {
     const milestoneSet = habit.theme === 'sobriety' ? CONFIG.milestones.sobriety : CONFIG.milestones.default;
     
     return milestoneSet[day] || null;
-  }
-  
-  /**
-   * Get special milestone message for significant days (legacy function)
-   * @param {number} day - The day count
-   * @returns {string|null} Milestone message or null if not a milestone
-   */
-  function getMilestoneMessage(day) {
-    // Legacy function for backward compatibility
-    const habit = CONFIG.habits[0];
-    return getMilestoneMessageForHabit(day, habit);
   }
   
   /**
@@ -508,20 +473,6 @@ const CONFIG = {
       }
       log(`Error getting calendar by name: ${error.message}`);
       throw new Error(`Error accessing calendar "${name}": ${error.message}`);
-    }
-  }
-  
-  /**
-   * Get calendar by name with better error handling (legacy function)
-   * @param {string} name - Calendar name
-   * @returns {Calendar|null} The calendar object or null if not found
-   */
-  function getCalendarByName(name) {
-    try {
-      return ensureCalendar(name);
-    } catch (error) {
-      log(`Error getting calendar by name: ${error.message}`);
-      return null;
     }
   }
   
@@ -636,16 +587,6 @@ const CONFIG = {
   }
   
   /**
-   * Get current counter value (legacy function)
-   * @returns {number} Current counter value
-   */
-  function getCurrentCounter() {
-    // Legacy function for backward compatibility
-    const habit = CONFIG.habits[0];
-    return getCurrentCounterForHabit(habit.id);
-  }
-  
-  /**
    * Reset counter for a specific habit to specified value
    * @param {string} habitId - The habit ID
    * @param {number} newValue - New counter value (default: 0)
@@ -660,16 +601,6 @@ const CONFIG = {
       props.setProperty(`HABIT_COUNTER_${habitId}`, newValue.toString());
       log(`Counter reset for habit ${habitId} to ${newValue}`);
     }
-  }
-  
-  /**
-   * Reset counter to specified value (legacy function)
-   * @param {number} newValue - New counter value (default: 0)
-   */
-  function resetCounter(newValue = 0) {
-    // Legacy function for backward compatibility
-    const habit = CONFIG.habits[0];
-    resetCounterForHabit(habit.id, newValue);
   }
   
   /**
@@ -726,16 +657,6 @@ const CONFIG = {
   }
   
   /**
-   * Set custom messages for custom theme (legacy function)
-   * @param {string[]} messages - Array of custom messages
-   */
-  function setCustomMessages(messages) {
-    // Legacy function for backward compatibility
-    const habit = CONFIG.habits[0];
-    setCustomMessagesForHabit(habit.id, messages);
-  }
-  
-  /**
    * Change theme for a specific habit
    * @param {string} habitId - The habit ID
    * @param {string} theme - Theme name: "general", "growth", "sobriety", "minimal", or "custom"
@@ -752,16 +673,6 @@ const CONFIG = {
     
     habit.theme = theme;
     log(`Changed theme for habit ${habitId} to: ${theme}`);
-  }
-  
-  /**
-   * Change theme (legacy function)
-   * @param {string} theme - Theme name: "general", "growth", "sobriety", "minimal", or "custom"
-   */
-  function changeTheme(theme) {
-    // Legacy function for backward compatibility
-    const habit = CONFIG.habits[0];
-    changeThemeForHabit(habit.id, theme);
   }
   
   /**
@@ -945,11 +856,6 @@ function sendWeeklySummary() {
   });
 }
 
-/** Helper: YYYY‑MM‑DD (legacy function) */
-function formatDate(d) {
-  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy‑MM‑dd');
-}
-
 /**
  * Install the weekly‐summary trigger if it doesn't yet exist.
  * Call this once (e.g. from onOpen).
@@ -967,4 +873,107 @@ function ensureWeeklyTrigger() {
       .create();
   }
 }
-  
+
+// --- LEGACY / BACKWARDS COMPATIBILITY — DELETE WHEN READY ---
+
+/**
+ * Determine the counter value based on configuration and current state (legacy function)
+ * @param {Properties} props - Script properties
+ * @param {boolean} resetTriggered - Whether a reset was triggered
+ * @param {boolean} skipTriggered - Whether a skip was triggered
+ * @returns {number} The counter value
+ */
+function determineCounter(props, resetTriggered, skipTriggered) {
+  const habit = CONFIG.habits[0];
+  return determineCounterForHabit(props, habit, resetTriggered, skipTriggered);
+}
+
+/**
+ * Get habit message based on day count and theme (legacy function)
+ * @param {number} day - The day count
+ * @returns {string} The appropriate message
+ */
+function getHabitMessage(day) {
+  const habit = CONFIG.habits[0];
+  return getHabitMessageForHabit(day, habit);
+}
+
+/**
+ * Get special milestone message for significant days (legacy function)
+ * @param {number} day - The day count
+ * @returns {string|null} Milestone message or null if not a milestone
+ */
+function getMilestoneMessage(day) {
+  const habit = CONFIG.habits[0];
+  return getMilestoneMessageForHabit(day, habit);
+}
+
+/**
+ * Get current counter value (legacy function)
+ * @returns {number} Current counter value
+ */
+function getCurrentCounter() {
+  const habit = CONFIG.habits[0];
+  return getCurrentCounterForHabit(habit.id);
+}
+
+/**
+ * Reset counter to specified value (legacy function)
+ * @param {number} newValue - New counter value (default: 0)
+ */
+function resetCounter(newValue = 0) {
+  const habit = CONFIG.habits[0];
+  resetCounterForHabit(habit.id, newValue);
+}
+
+/**
+ * Set custom messages for custom theme (legacy function)
+ * @param {string[]} messages - Array of custom messages
+ */
+function setCustomMessages(messages) {
+  const habit = CONFIG.habits[0];
+  setCustomMessagesForHabit(habit.id, messages);
+}
+
+/**
+ * Change theme (legacy function)
+ * @param {string} theme - Theme name: "general", "growth", "sobriety", "minimal", or "custom"
+ */
+function changeTheme(theme) {
+  const habit = CONFIG.habits[0];
+  changeThemeForHabit(habit.id, theme);
+}
+
+/**
+ * Get calendar by name with better error handling (legacy function)
+ * @param {string} name - Calendar name
+ * @returns {Calendar|null} The calendar object or null if not found
+ */
+function getCalendarByName(name) {
+  try {
+    return ensureCalendar(name);
+  } catch (error) {
+    log(`Error getting calendar by name: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Get list of available calendar names
+ * @returns {string[]} Array of calendar names
+ */
+function getAvailableCalendarNames() {
+  try {
+    return CalendarApp.getAllCalendars().map(cal => cal.getName());
+  } catch (error) {
+    log(`Error getting calendar names: ${error.message}`);
+    return [];
+  }
+}
+
+/** Helper: YYYY‑MM‑DD (legacy function) */
+function formatDate(d) {
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy‑MM‑dd');
+}
+
+// --- END LEGACY SECTION ---
