@@ -165,6 +165,10 @@ milestones: {
 - Set `enableResetByEvent: false` to disable RESET events
 - Set `enableSkipByEvent: false` to disable SKIP events
 
+### Event Identification
+
+The script identifies habit events using description tags (`[habit:habitId]`). This ensures reliable event detection even if habit names appear in other calendar events.
+
 ### Weekly Summaries
 
 The script automatically sends weekly email summaries every Monday at 8 AM, including:

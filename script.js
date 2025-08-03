@@ -218,7 +218,7 @@ const CONFIG = {
     const title = `${habit.name} - Day ${count} – ${message}`;
   
     const event = calendar.createAllDayEvent(title, startOfDay, endOfDay);
-    event.setTag('habitId', habit.id);
+    event.setDescription(`[habit:${habit.id}]`);
     
     newCounters[`HABIT_COUNTER_${habit.id}`] = count.toString();
     
@@ -571,7 +571,8 @@ const CONFIG = {
    * @returns {Date} Date object in script timezone
    */
   function parseDate(dateString) {
-    return Utilities.parseDate(dateString, TZ, 'yyyy-MM-dd');
+    const [y, m, d] = dateString.split('-').map(Number);
+    return new Date(y, m - 1, d);
   }
   
   /**
@@ -584,7 +585,7 @@ const CONFIG = {
   }
   
   /**
-   * Get habit events with fallback for legacy events without tags
+   * Get habit events with fallback for legacy events without description tags
    * @param {Calendar} calendar - The calendar object
    * @param {Date} startOfDay - Start of the day
    * @param {Date} endOfDay - End of the day
@@ -596,7 +597,8 @@ const CONFIG = {
     
     const taggedEvents = existingEvents.filter(event => 
       event.isAllDayEvent() && 
-      event.getTag('habitId') === habit.id
+      event.getDescription() && 
+      event.getDescription().includes(`[habit:${habit.id}]`)
     );
     
     if (taggedEvents.length > 0) {
@@ -612,10 +614,11 @@ const CONFIG = {
     
     legacyEvents.forEach(event => {
       try {
-        event.setTag('habitId', habit.id);
-        log(`Added tag to legacy event: ${event.getTitle()}`);
+        const currentDesc = event.getDescription() || '';
+        event.setDescription(`${currentDesc} [habit:${habit.id}]`);
+        log(`Added habit tag to legacy event: ${event.getTitle()}`);
       } catch (error) {
-        log(`Could not add tag to legacy event: ${error.message}`);
+        log(`Could not add habit tag to legacy event: ${error.message}`);
       }
     });
     
