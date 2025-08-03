@@ -1,251 +1,135 @@
-# Google Calendar Habit Streak Tracker
 
-A Google Apps Script that automatically creates daily habit tracking events in Google Calendar with customizable themes and messages.
+# Google Calendar Habit Streak (Apps Script)
 
-## Features
+Track your habits with **one all‑day event per day** right in Google Calendar.  
+The script counts consecutive days, rotates motivational messages, supports **RESET** and **SKIP** days (now applied **once for ALL habits**, bug‑free!), and emails you a Monday‑morning summary.
 
-- **Multi-Habit Support**: Track multiple habits simultaneously with different start dates
-- **Customizable Themes**: Choose from general, growth, sobriety, minimal, or custom themes
-- **Automatic Daily Events**: Creates calendar events for each habit every day
-- **Streak Tracking**: Maintains individual counters for each habit
-- **Reset/Skip Support**: Add "RESET" or "SKIP" events to control tracking
-- **Weekly Summaries**: Receive email summaries of your progress
-- **Milestone Messages**: Special messages for significant streak milestones
+> **Everything runs in your Google account** – no external servers or APIs.
 
-## Setup
+---
 
-1. **Create a Google Apps Script project**:
-   - Go to [script.google.com](https://script.google.com)
-   - Create a new project
-   - Copy the contents of `script.js` into the editor
+## ✨ Features
 
-2. **Configure your habits**:
-   Edit the `CONFIG` object in the script:
+| Feature | Details |
+|---------|---------|
+| Multiple habits | Configure as many as you like in `CONFIG.habits`. |
+| Automatic daily events | Idempotent – won’t create duplicates. |
+| Back‑fill first run | First execution sets counter to `days since startDate + 1`. |
+| RESET / SKIP | Add an all‑day event titled **RESET** or **SKIP** to today – now processed once and applied to every enabled habit. |
+| Themes & Milestones | `general`, `growth`, `sobriety`, `minimal`, or your own `custom` messages + milestone call‑outs (1, 7, 30, 365 …). |
+| Weekly summary email | Monday 08:00 (script TZ) – tracked vs. missed days, current streaks, list of titles. |
+| Spreadsheet menu | If the script is bound to a Google Sheet you get a **Habit Streak** menu for quick manual runs. |
+| Persistent counters | Stored in **Script Properties** as `HABIT_COUNTER_<id>`. |
 
-```javascript
-const CONFIG = {
-  calendarName: "Habits",              // Name of your calendar
-  habits: [                            // Array of habits to track
-    {
-      id: "exercise",                   // Unique identifier
-      name: "Daily Exercise",           // Display name
-      startDate: "2024-12-01",         // When you started (YYYY-MM-DD format)
-      manualCounter: null,              // Set to override counter, or null for auto
-      theme: "growth",                  // Theme: general, growth, sobriety, minimal, custom
-      customMessages: [],               // Custom messages for "custom" theme
-      enabled: true                     // Whether this habit is active
-    },
-    {
-      id: "reading",
-      name: "Reading",
-      startDate: "2024-11-15",
-      manualCounter: null,
-      theme: "general",
-      customMessages: [],
-      enabled: true
-    }
-  ],
-  enableResetByEvent: true,            // Enable RESET detection
-  enableSkipByEvent: true,             // Enable SKIP detection
-  enableLogging: true,                 // Enable console logging
-  maxCounterDays: 10000,              // Safety limit
-  milestones: {                        // Customizable milestone messages
-    sobriety: {
-      1: "First Day Sober 🌱",
-      7: "One Week Sober 🎉",
-      30: "One Month Sober 📅",
-      100: "100 Days Sober 💎",
-      365: "One Year Sober 🎊"
-    },
-    default: {
-      1: "First Step Forward 🚀",
-      7: "Week of Consistency 📅",
-      30: "Month of Progress 📊",
-      100: "Century Club 💎",
-      365: "Year of Transformation 🎉"
-    }
-  }
-};
+---
+
+## 🏎️ Quick Start
+
+1. **Create/choose a calendar** named **“Habits”** (or edit `CONFIG.calendarName`).
+2. **Open Apps Script**  
+   - *Option A*: From a Google Sheet → **Extensions → Apps Script** (to get the custom menu).  
+   - *Option B*: Stand‑alone at <https://script.google.com>.
+3. **Paste `Code.gs`** (this script) into the editor.
+4. **Set time zone** → *Project Settings → Time zone* (e.g., **Europe/Stockholm**).
+5. **Configure habits** in the `CONFIG` block.
+
+```js
+{ id: "exercise", name: "Daily Exercise", startDate: "2024-12-01",
+  theme: "growth", enabled: true }
 ```
 
-3. **Set up triggers**:
-   - Run the `onOpen()` function once to set up the menu
-   - The script will automatically create daily triggers
+6. **Run `onOpen`** once → grant permissions.  
+   This installs:
+   - a **daily trigger** at 01:00 for `createDailyHabitEvent`
+   - a **weekly trigger** at 08:00 Monday for `sendWeeklySummary`
+   - (Sheet‑bound) the **Habit Streak** menu.
+7. Click **Habit Streak → Create Today’s Event** (or wait for the trigger) → check your calendar!
 
-## How Start Dates Work
+---
 
-The `startDate` is now functional! When you first run the script for a habit:
+## 🔄 Daily Logic
 
-- **If you set a past start date**: The counter will calculate how many days have passed since that date
-  - Example: If you started on "2024-12-01" and today is "2024-12-15", your counter will start at 15
-- **If you set today's date**: The counter will start at 1
-- **If you set a future date**: The counter will start at 1 (minimum)
+1. Detect **RESET**/**SKIP** (once) → delete those marker events.
+2. For each **enabled** habit  
+   - Skip if today’s event already exists (tag `[habit:<id>]`).  
+   - Determine counter:  
+     - **RESET** → 1  
+     - **SKIP** → keep yesterday’s count  
+     - else increment (or back‑fill on first run).  
+   - Create event:  
+     ```
+     <Habit Name> - Day <N> – <message>
+     ```
+3. Store new counters in batch.
 
-This is perfect for habits you've already been doing for a while - just set your actual start date and the script will give you an accurate count of your progress!
+---
 
-## Usage
+## 🎨 Themes & Custom Messages
 
-### Adding New Habits
+- `general`, `growth`, `sobriety`, `minimal` — see `HABIT_THEMES`.
+- `custom` → add `customMessages: ["Msg 1", "Msg 2", …]` in that habit.
+- Non‑milestone days cycle through the theme list (`(day‑1) % messages.length`).
 
-You can add habits programmatically or by editing the config:
+---
 
-```javascript
-// Add a new habit
-addHabit({
-  id: "meditation",
-  name: "Daily Meditation",
-  startDate: new Date("2024-12-15"),
-  theme: "growth",
-  enabled: true
-});
+## 📧 Weekly Summary Email
+
+- Runs every Monday 08:00 (script TZ).
+- Email includes per‑habit tracked/missed, current streak, total resets/skips, and all titles.
+
+Change the schedule in `ensureWeeklyTrigger()` if needed.
+
+---
+
+## 🛠️ Common Helpers
+
+```js
+// Enable/disable during runtime
+setHabitEnabled('reading', true);
+
+// Manually reset a counter
+resetCounterForHabit('exercise', 0);
+
+// Change theme without editing code
+changeThemeForHabit('sobriety', 'minimal');
+
+// List available calendars
+Logger.log(getAvailableCalendarNames());
 ```
 
-### Managing Habits
+---
 
-```javascript
-// Enable/disable a habit
-setHabitEnabled("exercise", false);
+## 🐞 Troubleshooting
 
-// Remove a habit
-removeHabit("reading");
+| Issue | Fix |
+|-------|-----|
+| No events created | Check that habit is `enabled:true` and triggers are installed (View → Triggers). |
+| “Calendar not found” | Create/rename calendar or change `CONFIG.calendarName`. |
+| RESET/SKIP ignored | Ensure it’s **all‑day**, titled exactly `RESET`/`SKIP`, and in the **same calendar**. |
+| Weekly email missing | Verify the trigger and check spam. |
+| Wrong dates | Set the project time zone correctly. |
 
-// Get habit info
-const habit = getHabit("exercise");
+---
 
-// Get all habits
-const allHabits = getAllHabits();
-```
+## 🔐 Permissions
 
-### Custom Themes
+- **Calendar** – read/write events  
+- **Properties** – save counters  
+- **Mail** – send summary  
+- **Spreadsheet UI** (optional) – show custom menu
 
-For custom themes, set your own messages:
+All data stays inside your Google account.
 
-```javascript
-setCustomMessagesForHabit("exercise", [
-  "Workout Complete 💪",
-  "Stronger Today 🏋️",
-  "Fitness First 🎯",
-  "Building Strength 🔥"
-]);
-```
+---
 
-### Customizing Milestones
+## 🗑️ Uninstall
 
-You can customize milestone messages in the CONFIG:
+1. Delete triggers (`createDailyHabitEvent`, `sendWeeklySummary`) in Apps Script → **Triggers**.
+2. Remove or archive the Apps Script project.
+3. Delete the **Habits** calendar if desired.
 
-```javascript
-milestones: {
-  default: {
-    1: "First Step Forward 🚀",
-    7: "Week of Consistency 📅",
-    30: "Month of Progress 📊",
-    100: "Century Club 💎",
-    365: "Year of Transformation 🎉"
-  },
-  sobriety: {
-    1: "First Day Sober 🌱",
-    7: "One Week Sober 🎉",
-    30: "One Month Sober 📅",
-    100: "100 Days Sober 💎",
-    365: "One Year Sober 🎊"
-  }
-}
-```
+---
 
-- **default**: Used for general, growth, and minimal themes
-- **sobriety**: Used for sobriety theme
-- Add any day number as a key with your custom message
+## ♥️ License
 
-### Reset and Skip Events
-
-- Create an all-day event titled "RESET" to reset a habit's counter to 1
-- Create an all-day event titled "SKIP" to skip a day without incrementing the counter
-
-**Note**: You can disable these features in the configuration:
-- Set `enableResetByEvent: false` to disable RESET events
-- Set `enableSkipByEvent: false` to disable SKIP events
-
-### Event Identification
-
-The script identifies habit events using description tags (`[habit:habitId]`). This ensures reliable event detection even if habit names appear in other calendar events.
-
-### Weekly Summaries
-
-The script automatically sends weekly email summaries every Monday at 8 AM, including:
-- Individual habit statistics
-- Overall progress
-- Current streaks
-- Reset/skip activity
-
-## Available Themes
-
-### General
-- "Kept the streak alive 🔁"
-- "Commitment Continues 💥"
-- "Progress, Not Perfection 📈"
-
-### Growth
-- "Watering the Habit 🌱"
-- "Growing Stronger Each Day 🌿"
-- "Building Discipline 🔨"
-
-### Sobriety
-- "I will not drink today 💪"
-- "Clear mind, steady path 🧠"
-- "Today, I choose sobriety 🌤️"
-
-### Minimal
-- Simple symbols: ✅ 🟢 🔘 ⏺️ ➕
-
-### Custom
-- Define your own messages
-
-## Functions Reference
-
-### Core Functions
-- `createDailyHabitEvent()` - Creates events for all enabled habits
-- `getTrackingStats()` - Get statistics for all habits
-- `sendWeeklySummary()` - Send weekly summary email
-
-### Habit Management
-- `addHabit(habitConfig)` - Add a new habit
-- `removeHabit(habitId)` - Remove a habit
-- `setHabitEnabled(habitId, enabled)` - Enable/disable a habit
-- `getHabit(habitId)` - Get habit configuration
-- `getAllHabits()` - Get all habits
-
-### Counter Management
-- `getCurrentCounterForHabit(habitId)` - Get current counter for a habit
-- `resetCounterForHabit(habitId, newValue)` - Reset counter for a habit
-
-### Theme Management
-- `changeThemeForHabit(habitId, theme)` - Change theme for a habit
-- `setCustomMessagesForHabit(habitId, messages)` - Set custom messages
-
-## Event Format
-
-Each habit creates events with the format:
-`[Habit Name] - Day [Count] – [Message]`
-
-Example:
-- "Daily Exercise - Day 15 – Growing Stronger Each Day 🌿"
-- "Reading - Day 7 – Week of Consistency 📅"
-
-## Tips
-
-1. **Start with one habit** and add more as you get comfortable
-2. **Use meaningful IDs** for your habits (e.g., "exercise", "reading", "meditation")
-3. **Set realistic start dates** - the script will calculate days since you started
-4. **Use the weekly summaries** to track your progress over time
-5. **Experiment with themes** to find what motivates you most
-
-## Troubleshooting
-
-- **Calendar not found**: Make sure the calendar name in CONFIG matches exactly
-- **Events not creating**: Check that habits are enabled and triggers are set up
-- **Wrong counter**: Use manualCounter to set a specific value, or create a RESET event
-- **No weekly emails**: Check that the weekly trigger is created in the script editor
-
-## License
-
-This project is open source and available under the MIT License. 
+MIT – do what you want, just don’t blame me if your streak breaks 😉

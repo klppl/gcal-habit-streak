@@ -131,6 +131,16 @@ const CONFIG = {
       const results = [];
       const newCounters = {};
       
+      // Process reset/skip events once for all habits
+      let resetTriggered = false;
+      let skipTriggered = false;
+      if (CONFIG.enableResetByEvent) {
+        resetTriggered = processResetEvents(calendar, startOfDay, endOfDay);
+      }
+      if (CONFIG.enableSkipByEvent) {
+        skipTriggered = processSkipEvents(calendar, startOfDay, endOfDay);
+      }
+      
       // Process each enabled habit
       for (const habit of CONFIG.habits) {
         if (!habit.enabled) {
@@ -139,7 +149,7 @@ const CONFIG = {
         }
         
         try {
-          const result = createHabitEventForDay(calendar, habit, startOfDay, endOfDay, props, newCounters);
+          const result = createHabitEventForDay(calendar, habit, startOfDay, endOfDay, props, newCounters, resetTriggered, skipTriggered);
           results.push(result);
         } catch (error) {
           log(`Error processing habit ${habit.id}: ${error.message}`);
@@ -184,9 +194,11 @@ const CONFIG = {
    * @param {Date} endOfDay - End of the day
    * @param {Properties} props - Script properties
    * @param {Object} newCounters - Object to collect counter updates
+   * @param {boolean} resetTriggered - Whether a reset was triggered for all habits
+   * @param {boolean} skipTriggered - Whether a skip was triggered for all habits
    * @returns {Object} Result object for this habit
    */
-  function createHabitEventForDay(calendar, habit, startOfDay, endOfDay, props, newCounters) {
+  function createHabitEventForDay(calendar, habit, startOfDay, endOfDay, props, newCounters, resetTriggered, skipTriggered) {
     const habitEvents = getHabitEvents(calendar, startOfDay, endOfDay, habit);
     
     if (habitEvents.length > 0) {
@@ -197,15 +209,6 @@ const CONFIG = {
         message: "Event already exists for today",
         existingEvent: habitEvents[0].getTitle()
       };
-    }
-  
-    let resetTriggered = false;
-    let skipTriggered = false;
-    if (CONFIG.enableResetByEvent) {
-      resetTriggered = processResetEvents(calendar, startOfDay, endOfDay);
-    }
-    if (CONFIG.enableSkipByEvent) {
-      skipTriggered = processSkipEvents(calendar, startOfDay, endOfDay);
     }
   
     const count = determineCounterForHabit(props, habit, resetTriggered, skipTriggered);
@@ -873,7 +876,3 @@ function ensureWeeklyTrigger() {
       .create();
   }
 }
-
-// --- LEGACY / BACKWARDS COMPATIBILITY — DELETE WHEN READY ---
-
-// --- END LEGACY SECTION ---
