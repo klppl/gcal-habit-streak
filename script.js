@@ -612,38 +612,6 @@ const CONFIG = {
    * @param {Object} habit - The habit configuration
    * @returns {Array} Array of habit events
    */
-  function getHabitEvents(calendar, startOfDay, endOfDay, habit) {
-    const existingEvents = calendar.getEvents(startOfDay, endOfDay);
-    
-    const taggedEvents = existingEvents.filter(event => 
-      event.isAllDayEvent() && 
-      event.getDescription() && 
-      event.getDescription().includes(`[habit:${habit.id}]`)
-    );
-    
-    if (taggedEvents.length > 0) {
-      return taggedEvents;
-    }
-    
-    const legacyEvents = existingEvents.filter(event => 
-      event.isAllDayEvent() && 
-      event.getTitle().includes("Day") && 
-      event.getTitle().includes("–") &&
-      event.getTitle().includes(habit.name)
-    );
-    
-    legacyEvents.forEach(event => {
-      try {
-        const currentDesc = event.getDescription() || '';
-        event.setDescription(`${currentDesc} [habit:${habit.id}]`);
-        log(`Added habit tag to legacy event: ${event.getTitle()}`);
-      } catch (error) {
-        log(`Could not add habit tag to legacy event: ${error.message}`);
-      }
-    });
-    
-    return legacyEvents;
-  }
   
   /**
    * Get habit events from cached events (optimized version)
