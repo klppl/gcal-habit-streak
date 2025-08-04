@@ -115,11 +115,40 @@ const CONFIG = {
   };
   
   /**
+   * Performance monitoring for API calls
+   */
+  let apiCallCount = 0;
+  let cacheHitCount = 0;
+  
+  /**
+   * Reset performance counters
+   */
+  function resetPerformanceCounters() {
+    apiCallCount = 0;
+    cacheHitCount = 0;
+  }
+  
+  /**
+   * Get performance statistics
+   * @returns {Object} Performance statistics
+   */
+  function getPerformanceStats() {
+    return {
+      apiCallCount,
+      cacheHitCount,
+      cacheHitRate: apiCallCount > 0 ? (cacheHitCount / apiCallCount * 100).toFixed(2) + '%' : '0%'
+    };
+  }
+  
+  /**
    * Main function to create daily habit tracking events for all enabled habits
    * @returns {Object} Result object with success status and details
    */
   function createDailyHabitEvent() {
     try {
+      // Reset performance counters
+      resetPerformanceCounters();
+      
       // Validate configuration
       validateConfig();
       
@@ -131,14 +160,20 @@ const CONFIG = {
       const results = [];
       const newCounters = {};
       
+      // OPTIMIZATION: Get all events for the day once and cache them
+      const allDayEvents = getCachedDayEvents(calendar, startOfDay, endOfDay);
+      
+      // OPTIMIZATION: Get all enabled habit IDs for batch operations
+      const enabledHabitIds = CONFIG.habits.filter(h => h.enabled).map(h => h.id);
+      
       // Process reset/skip events once for all habits
       let resetTriggered = false;
       let skipTriggered = false;
       if (CONFIG.enableResetByEvent) {
-        resetTriggered = processResetEvents(calendar, startOfDay, endOfDay);
+        resetTriggered = processResetEventsFromCache(allDayEvents);
       }
       if (CONFIG.enableSkipByEvent) {
-        skipTriggered = processSkipEvents(calendar, startOfDay, endOfDay);
+        skipTriggered = processSkipEventsFromCache(allDayEvents);
       }
       
       // Process each enabled habit
@@ -149,7 +184,7 @@ const CONFIG = {
         }
         
         try {
-          const result = createHabitEventForDay(calendar, habit, startOfDay, endOfDay, props, newCounters, resetTriggered, skipTriggered);
+          const result = createHabitEventForDayOptimized(calendar, habit, startOfDay, endOfDay, props, newCounters, resetTriggered, skipTriggered, allDayEvents);
           results.push(result);
         } catch (error) {
           log(`Error processing habit ${habit.id}: ${error.message}`);
@@ -169,14 +204,17 @@ const CONFIG = {
       const successfulResults = results.filter(r => r.success);
       const failedResults = results.filter(r => !r.success);
       
+      const performanceStats = getPerformanceStats();
       log(`Processed ${results.length} habits: ${successfulResults.length} successful, ${failedResults.length} failed`);
+      log(`Performance: ${performanceStats.apiCallCount} API calls, ${performanceStats.cacheHitRate} cache hit rate`);
       
       return {
         success: successfulResults.length > 0,
         message: `Processed ${results.length} habits`,
         results: results,
         successfulCount: successfulResults.length,
-        failedCount: failedResults.length
+        failedCount: failedResults.length,
+        performance: performanceStats
       };
       
     } catch (error) {
@@ -187,7 +225,98 @@ const CONFIG = {
   }
   
   /**
-   * Create a habit event for a specific habit on a specific day
+   * Cache for day events to avoid multiple API calls
+   */
+  let dayEventsCache = null;
+  let cacheKey = null;
+  
+  /**
+   * Get cached day events or fetch them if not cached
+   * @param {Calendar} calendar - The calendar object
+   * @param {Date} startOfDay - Start of the day
+   * @param {Date} endOfDay - End of the day
+   * @returns {Array} Array of all day events
+   */
+  function getCachedDayEvents(calendar, startOfDay, endOfDay) {
+    const currentKey = `${startOfDay.getTime()}-${endOfDay.getTime()}`;
+    
+    if (dayEventsCache && cacheKey === currentKey) {
+      log('Using cached day events');
+      cacheHitCount++;
+      return dayEventsCache;
+    }
+    
+    log('Fetching day events from calendar API');
+    apiCallCount++;
+    const events = calendar.getEvents(startOfDay, endOfDay);
+    const allDayEvents = events.filter(event => event.isAllDayEvent());
+    
+    // Cache the results
+    dayEventsCache = allDayEvents;
+    cacheKey = currentKey;
+    
+    log(`Cached ${allDayEvents.length} all-day events`);
+    return allDayEvents;
+  }
+  
+  /**
+   * Process RESET events from cached events
+   * @param {Array} allDayEvents - Cached all-day events
+   * @returns {boolean} Whether a reset was triggered
+   */
+  function processResetEventsFromCache(allDayEvents) {
+    const resetEvents = allDayEvents.filter(event =>
+      event.getTitle().trim().toUpperCase() === "RESET"
+    );
+  
+    if (resetEvents.length > 0) {
+      log(`Found ${resetEvents.length} RESET event(s)`);
+      
+      // Delete RESET events after processing
+      resetEvents.forEach(event => {
+        event.deleteEvent();
+        log(`Deleted RESET event: ${event.getTitle()}`);
+      });
+      
+      // Remove deleted events from cache
+      dayEventsCache = dayEventsCache.filter(event => !resetEvents.includes(event));
+      
+      return true;
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Process SKIP events from cached events
+   * @param {Array} allDayEvents - Cached all-day events
+   * @returns {boolean} Whether a skip was triggered
+   */
+  function processSkipEventsFromCache(allDayEvents) {
+    const skipEvents = allDayEvents.filter(event =>
+      event.getTitle().trim().toUpperCase() === "SKIP"
+    );
+  
+    if (skipEvents.length > 0) {
+      log(`Found ${skipEvents.length} SKIP event(s)`);
+      
+      // Delete SKIP events after processing
+      skipEvents.forEach(event => {
+        event.deleteEvent();
+        log(`Deleted SKIP event: ${event.getTitle()}`);
+      });
+      
+      // Remove deleted events from cache
+      dayEventsCache = dayEventsCache.filter(event => !skipEvents.includes(event));
+      
+      return true;
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Create a habit event for a specific habit on a specific day (optimized version)
    * @param {Calendar} calendar - The calendar object
    * @param {Object} habit - The habit configuration
    * @param {Date} startOfDay - Start of the day
@@ -196,10 +325,11 @@ const CONFIG = {
    * @param {Object} newCounters - Object to collect counter updates
    * @param {boolean} resetTriggered - Whether a reset was triggered for all habits
    * @param {boolean} skipTriggered - Whether a skip was triggered for all habits
+   * @param {Array} allDayEvents - Cached all-day events
    * @returns {Object} Result object for this habit
    */
-  function createHabitEventForDay(calendar, habit, startOfDay, endOfDay, props, newCounters, resetTriggered, skipTriggered) {
-    const habitEvents = getHabitEvents(calendar, startOfDay, endOfDay, habit);
+  function createHabitEventForDayOptimized(calendar, habit, startOfDay, endOfDay, props, newCounters, resetTriggered, skipTriggered, allDayEvents) {
+    const habitEvents = getHabitEventsFromCache(allDayEvents, habit);
     
     if (habitEvents.length > 0) {
       log(`Event already exists for habit ${habit.id} today: ${habitEvents[0].getTitle()}`);
@@ -222,6 +352,9 @@ const CONFIG = {
   
     const event = calendar.createAllDayEvent(title, startOfDay, endOfDay);
     event.setDescription(`[habit:${habit.id}]`);
+    
+    // Add new event to cache
+    dayEventsCache.push(event);
     
     newCounters[`HABIT_COUNTER_${habit.id}`] = count.toString();
     
@@ -317,62 +450,6 @@ const CONFIG = {
     if (!CONFIG.milestones.sobriety || typeof CONFIG.milestones.sobriety !== 'object') {
       throw new Error('milestones.sobriety must be an object');
     }
-  }
-  
-  /**
-   * Process RESET events and return whether a reset was triggered
-   * @param {Calendar} calendar - The calendar object
-   * @param {Date} startOfDay - Start of the day
-   * @param {Date} endOfDay - End of the day
-   * @returns {boolean} Whether a reset was triggered
-   */
-  function processResetEvents(calendar, startOfDay, endOfDay) {
-    const events = calendar.getEvents(startOfDay, endOfDay, {search: "RESET"});
-    const resetEvents = events.filter(event =>
-      event.isAllDayEvent() && event.getTitle().trim().toUpperCase() === "RESET"
-    );
-  
-    if (resetEvents.length > 0) {
-      log(`Found ${resetEvents.length} RESET event(s)`);
-      
-      // Delete RESET events after processing
-      resetEvents.forEach(event => {
-        event.deleteEvent();
-        log(`Deleted RESET event: ${event.getTitle()}`);
-      });
-      
-      return true;
-    }
-    
-    return false;
-  }
-  
-  /**
-   * Process SKIP events and return whether a skip was triggered
-   * @param {Calendar} calendar - The calendar object
-   * @param {Date} startOfDay - Start of the day
-   * @param {Date} endOfDay - End of the day
-   * @returns {boolean} Whether a skip was triggered
-   */
-  function processSkipEvents(calendar, startOfDay, endOfDay) {
-    const events = calendar.getEvents(startOfDay, endOfDay, {search: "SKIP"});
-    const skipEvents = events.filter(event =>
-      event.isAllDayEvent() && event.getTitle().trim().toUpperCase() === "SKIP"
-    );
-  
-    if (skipEvents.length > 0) {
-      log(`Found ${skipEvents.length} SKIP event(s)`);
-      
-      // Delete SKIP events after processing
-      skipEvents.forEach(event => {
-        event.deleteEvent();
-        log(`Deleted SKIP event: ${event.getTitle()}`);
-      });
-      
-      return true;
-    }
-    
-    return false;
   }
   
   /**
@@ -569,6 +646,94 @@ const CONFIG = {
   }
   
   /**
+   * Get habit events from cached events (optimized version)
+   * @param {Array} allDayEvents - Cached all-day events
+   * @param {Object} habit - The habit configuration
+   * @returns {Array} Array of habit events
+   */
+  function getHabitEventsFromCache(allDayEvents, habit) {
+    const taggedEvents = allDayEvents.filter(event => 
+      event.getDescription() && 
+      event.getDescription().includes(`[habit:${habit.id}]`)
+    );
+    
+    if (taggedEvents.length > 0) {
+      return taggedEvents;
+    }
+    
+    const legacyEvents = allDayEvents.filter(event => 
+      event.getTitle().includes("Day") && 
+      event.getTitle().includes("–") &&
+      event.getTitle().includes(habit.name)
+    );
+    
+    legacyEvents.forEach(event => {
+      try {
+        const currentDesc = event.getDescription() || '';
+        event.setDescription(`${currentDesc} [habit:${habit.id}]`);
+        log(`Added habit tag to legacy event: ${event.getTitle()}`);
+      } catch (error) {
+        log(`Could not add habit tag to legacy event: ${error.message}`);
+      }
+    });
+    
+    return legacyEvents;
+  }
+  
+  /**
+   * Get habit events from weekly cached events (optimized version)
+   * @param {Array} allDayWeekEvents - Cached all-day events for the week
+   * @param {Object} habit - The habit configuration
+   * @returns {Array} Array of habit events
+   */
+  function getHabitEventsFromWeeklyCache(allDayWeekEvents, habit) {
+    const taggedEvents = allDayWeekEvents.filter(event => 
+      event.getDescription() && 
+      event.getDescription().includes(`[habit:${habit.id}]`)
+    );
+    
+    if (taggedEvents.length > 0) {
+      return taggedEvents;
+    }
+    
+    const legacyEvents = allDayWeekEvents.filter(event => 
+      event.getTitle().includes("Day") && 
+      event.getTitle().includes("–") &&
+      event.getTitle().includes(habit.name)
+    );
+    
+    return legacyEvents;
+  }
+  
+  /**
+   * Clear the day events cache
+   */
+  function clearDayEventsCache() {
+    dayEventsCache = null;
+    cacheKey = null;
+    log('Day events cache cleared');
+  }
+  
+  /**
+   * Get all habit counters in a single batch operation
+   * @param {Array} habitIds - Array of habit IDs to get counters for
+   * @returns {Object} Object with habit ID as key and counter value as value
+   */
+  function getBatchHabitCounters(habitIds) {
+    const props = PropertiesService.getScriptProperties();
+    const counterKeys = habitIds.map(id => `HABIT_COUNTER_${id}`);
+    const properties = props.getProperties(counterKeys);
+    
+    const counters = {};
+    habitIds.forEach(id => {
+      const key = `HABIT_COUNTER_${id}`;
+      counters[id] = parseInt(properties[key] || "0", 10);
+    });
+    
+    return counters;
+  }
+  
+  /**
    * Get current counter value for a specific habit
    * @param {string} habitId - The habit ID
    * @returns {number} Current counter value
@@ -607,8 +772,12 @@ const CONFIG = {
       enabledHabits: CONFIG.habits.filter(h => h.enabled).length
     };
     
+    // OPTIMIZATION: Get all counters in a single batch operation
+    const habitIds = CONFIG.habits.map(h => h.id);
+    const counters = getBatchHabitCounters(habitIds);
+    
     for (const habit of CONFIG.habits) {
-      const currentCount = getCurrentCounterForHabit(habit.id);
+      const currentCount = counters[habit.id];
       const startDate = habit.startDate;
       const { start: today } = getDayBounds();
       const daysSinceStart = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
@@ -802,9 +971,13 @@ function sendWeeklySummary() {
   const nextMonday = new Date(monday);
   nextMonday.setDate(monday.getDate() + 7);
 
+  // OPTIMIZATION: Get all events for the week once
+  const allWeekEvents = calendar.getEvents(monday, nextMonday);
+  const allDayWeekEvents = allWeekEvents.filter(event => event.isAllDayEvent());
+  
   const habitEvents = {};
   for (const habit of CONFIG.habits) {
-    habitEvents[habit.id] = getHabitEvents(calendar, monday, nextMonday, habit);
+    habitEvents[habit.id] = getHabitEventsFromWeeklyCache(allDayWeekEvents, habit);
   }
 
   const totalDays = 7;
@@ -829,12 +1002,13 @@ function sendWeeklySummary() {
     summaryText += `• Current streak: ${getCurrentCounterForHabit(habit.id)}\n\n`;
   }
 
-  const resets = calendar
-    .getEvents(monday, nextMonday, { search: 'RESET' })
-    .filter(ev => ev.isAllDayEvent()).length;
-  const skips = calendar
-    .getEvents(monday, nextMonday, { search: 'SKIP' })
-    .filter(ev => ev.isAllDayEvent()).length;
+  // OPTIMIZATION: Use cached events for reset/skip counts
+  const resets = allDayWeekEvents.filter(ev => 
+    ev.getTitle().trim().toUpperCase() === 'RESET'
+  ).length;
+  const skips = allDayWeekEvents.filter(ev => 
+    ev.getTitle().trim().toUpperCase() === 'SKIP'
+  ).length;
 
   summaryText += `Overall:\n`;
   summaryText += `• Total tracked days: ${totalTracked}\n`;
