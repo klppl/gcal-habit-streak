@@ -109,9 +109,11 @@ const CONFIG = {
       log(`Fetched ${allDayEvents.length} events for today, ${yesterdayEvents.length} for yesterday`);
 
       let resetTriggered = false;
+      let resetTriggeredYesterday = false;
       let skipTriggered = false;
       if (CONFIG.enableResetByEvent) {
         resetTriggered = processResetEventsFromCache(allDayEvents);
+        resetTriggeredYesterday = processResetEventsFromCache(yesterdayEvents);
       }
       if (CONFIG.enableSkipByEvent) {
         skipTriggered = processSkipEventsFromCache(allDayEvents);
@@ -125,7 +127,7 @@ const CONFIG = {
         }
 
         try {
-          const result = createHabitEventForDayOptimized(calendar, habit, startOfDay, endOfDay, allProps, newCounters, resetTriggered, skipTriggered, allDayEvents, yesterdayEvents);
+          const result = createHabitEventForDayOptimized(calendar, habit, startOfDay, endOfDay, allProps, newCounters, resetTriggered, resetTriggeredYesterday, skipTriggered, allDayEvents, yesterdayEvents);
           results.push(result);
         } catch (error) {
           log(`Error processing habit ${habit.id}: ${error.message}`);
@@ -163,9 +165,9 @@ const CONFIG = {
   }
   
   /**
-   * Delete all-day events whose title matches a sentinel (e.g. "RESET", "SKIP")
-   * and remove them from the passed-in array in place.
-   * @param {Array} allDayEvents - Array of all-day events (mutated)
+   * Find standalone all-day events whose title matches a sentinel.
+   * Sentinel events are deliberately kept so the calendar remains auditable.
+   * @param {Array} allDayEvents - Array of all-day events
    * @param {string} sentinel - Title to match, uppercase
    * @returns {boolean} Whether any matching events were found
    */
@@ -176,15 +178,6 @@ const CONFIG = {
     if (matches.length === 0) return false;
 
     log(`Found ${matches.length} ${sentinel} event(s)`);
-    matches.forEach(event => {
-      event.deleteEvent();
-      log(`Deleted ${sentinel} event: ${event.getTitle()}`);
-    });
-
-    const matchSet = new Set(matches);
-    for (let i = allDayEvents.length - 1; i >= 0; i--) {
-      if (matchSet.has(allDayEvents[i])) allDayEvents.splice(i, 1);
-    }
     return true;
   }
 
@@ -204,17 +197,49 @@ const CONFIG = {
    * @param {Date} endOfDay - End of the day
    * @param {Object} allProps - Snapshot of all script properties
    * @param {Object} newCounters - Object to collect property updates (batched)
-   * @param {boolean} resetTriggered - Whether a RESET event was present
+   * @param {boolean} resetTriggered - Whether a standalone RESET is present today
+   * @param {boolean} resetTriggeredYesterday - Whether a standalone RESET was present yesterday
    * @param {boolean} skipTriggered - Whether a SKIP event was present
    * @param {Array} allDayEvents - Today's all-day events
    * @param {Array} yesterdayEvents - Yesterday's all-day events (for gap detection)
    * @returns {Object} Result object for this habit
    */
-  function createHabitEventForDayOptimized(calendar, habit, startOfDay, endOfDay, allProps, newCounters, resetTriggered, skipTriggered, allDayEvents, yesterdayEvents) {
+  function createHabitEventForDayOptimized(calendar, habit, startOfDay, endOfDay, allProps, newCounters, resetTriggered, resetTriggeredYesterday, skipTriggered, allDayEvents, yesterdayEvents) {
     const habitEvents = findHabitEvents(allDayEvents, habit);
+    const yesterdayHabitEvents = findHabitEvents(yesterdayEvents, habit);
     tagLegacyEvents(habitEvents, habit);
+    tagLegacyEvents(yesterdayHabitEvents, habit);
+
+    // RESET written on a habit event only resets that habit. A separate event
+    // titled exactly RESET remains a convenient global reset for every habit.
+    const resetToday = CONFIG.enableResetByEvent && (
+      resetTriggered || habitEvents.some(event => hasControlMarker(event, 'RESET'))
+    );
+    const resetYesterday = CONFIG.enableResetByEvent && (
+      resetTriggeredYesterday || yesterdayHabitEvents.some(event => hasControlMarker(event, 'RESET'))
+    );
+
+    if (resetYesterday) {
+      yesterdayHabitEvents.forEach(event => normalizeHabitEvent(event, habit, 1, 'RESET'));
+    }
 
     if (habitEvents.length > 0) {
+      if (resetToday || resetYesterday) {
+        const count = resetToday ? 1 : 2;
+        habitEvents.forEach(event => normalizeHabitEvent(event, habit, count, resetToday ? 'RESET' : null));
+        newCounters[`HABIT_COUNTER_${habit.id}`] = count.toString();
+        log(`Applied reset for habit ${habit.id}; today's counter is ${count}`);
+        return {
+          habitId: habit.id,
+          success: true,
+          message: 'Existing event updated after reset',
+          dayCount: count,
+          resetApplied: true,
+          eventTitle: habitEvents[0].getTitle(),
+          eventId: habitEvents[0].getId()
+        };
+      }
+
       log(`Event already exists for habit ${habit.id} today: ${habitEvents[0].getTitle()}`);
       return {
         habitId: habit.id,
@@ -224,7 +249,7 @@ const CONFIG = {
       };
     }
 
-    const count = determineCounterForHabit(allProps, habit, resetTriggered, skipTriggered, yesterdayEvents, startOfDay);
+    const count = determineCounterForHabit(allProps, habit, resetToday, resetYesterday, skipTriggered, yesterdayEvents, startOfDay);
 
     if (count > CONFIG.maxCounterDays) {
       throw new Error(`Counter exceeded maximum limit of ${CONFIG.maxCounterDays} days for habit ${habit.id}`);
@@ -258,6 +283,38 @@ const CONFIG = {
       eventTitle: title,
       eventId: event.getId()
     };
+  }
+
+  /**
+   * Whether an event contains a standalone control word in its title or
+   * description. `[RESET]`, `- RESET`, and plain `RESET` are all accepted,
+   * while words such as `RESETTING` are ignored.
+   */
+  function hasControlMarker(event, marker) {
+    const text = `${event.getTitle() || ''}\n${event.getDescription() || ''}`.toUpperCase();
+    const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`).test(text);
+  }
+
+  /**
+   * Rewrite a generated habit event to the supplied day number. If RESET was
+   * written in the title, retain it in a consistent `[RESET]` form so future
+   * runs can still see why the streak restarted.
+   */
+  function normalizeHabitEvent(event, habit, count, marker = null) {
+    const titleHasMarker = marker && hasControlMarkerInText(event.getTitle(), marker);
+    const message = getHabitMessageForHabit(count, habit);
+    const markerSuffix = titleHasMarker ? ` [${marker}]` : '';
+    const title = `${habit.name} - Day ${count} – ${message}${markerSuffix}`;
+    if (event.getTitle() !== title) {
+      event.setTitle(title);
+      log(`Updated habit event after reset: ${title}`);
+    }
+  }
+
+  function hasControlMarkerInText(text, marker) {
+    const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`, 'i').test(text || '');
   }
   
   /**
@@ -345,13 +402,14 @@ const CONFIG = {
    * Determine the counter value for a specific habit.
    * @param {Object} allProps - Snapshot of all script properties
    * @param {Object} habit - The habit configuration
-   * @param {boolean} resetTriggered - Whether a RESET was present today
+   * @param {boolean} resetTriggered - Whether this habit resets today
+   * @param {boolean} resetTriggeredYesterday - Whether this habit reset yesterday
    * @param {boolean} skipTriggered - Whether a SKIP was present today
    * @param {Array} yesterdayEvents - Yesterday's all-day events (for gap detection)
    * @param {Date} startOfDay - Today's start (used to derive "yesterday")
    * @returns {number} The counter value
    */
-  function determineCounterForHabit(allProps, habit, resetTriggered, skipTriggered, yesterdayEvents, startOfDay) {
+  function determineCounterForHabit(allProps, habit, resetTriggered, resetTriggeredYesterday, skipTriggered, yesterdayEvents, startOfDay) {
     if (habit.manualCounter !== null) {
       log(`Using manual counter for habit ${habit.id}: ${habit.manualCounter}`);
       return habit.manualCounter;
@@ -360,6 +418,11 @@ const CONFIG = {
     if (resetTriggered) {
       log(`Reset triggered for habit ${habit.id}, starting counter at 1`);
       return 1;
+    }
+
+    if (resetTriggeredYesterday) {
+      log(`Reset was triggered yesterday for habit ${habit.id}, setting counter to 2`);
+      return 2;
     }
 
     const currentCount = parseInt(allProps[`HABIT_COUNTER_${habit.id}`] || "0", 10);
@@ -735,10 +798,16 @@ function sendWeeklySummary() {
     summaryText += `• Best streak: ${best}\n\n`;
   }
 
-  // OPTIMIZATION: Use cached events for reset/skip counts
-  const resets = allDayWeekEvents.filter(ev => 
+  // Count both global RESET events and habit-specific inline markers once.
+  const resetEvents = new Set(allDayWeekEvents.filter(ev =>
     ev.getTitle().trim().toUpperCase() === 'RESET'
-  ).length;
+  ));
+  for (const habit of CONFIG.habits) {
+    findHabitEvents(allDayWeekEvents, habit)
+      .filter(ev => hasControlMarker(ev, 'RESET'))
+      .forEach(ev => resetEvents.add(ev));
+  }
+  const resets = resetEvents.size;
   const skips = allDayWeekEvents.filter(ev => 
     ev.getTitle().trim().toUpperCase() === 'SKIP'
   ).length;

@@ -15,7 +15,10 @@ Track your daily habits with Google Calendar events. Automatically counts streak
 
 - Creates one all-day event per habit each day
 - Counts consecutive days automatically, tracks your best streak
-- Add a "RESET" or "SKIP" all-day event to reset / pause your streak
+- Add `[RESET]` to a generated habit event to restart that habit from Day 1
+- Or add a separate all-day event titled exactly `RESET` to reset every enabled habit
+- RESET markers remain in Calendar as an audit trail
+- Add a separate `SKIP` all-day event to pause the counter for that day
 - If yesterday had no habit event, the streak auto-resets (toggle with `autoResetOnGap`)
 - Sends weekly summary emails on Mondays with current + best streak per habit
 - Everything runs in your Google account
@@ -40,7 +43,7 @@ Mix tags freely. To add flavors, drop new messages into `MESSAGES` with whatever
 
 Global flags (under `CONFIG`):
 
-- `enableResetByEvent`, `enableSkipByEvent` — honor RESET/SKIP sentinel events
+- `enableResetByEvent`, `enableSkipByEvent` — honor RESET/SKIP control markers
 - `autoResetOnGap` — reset streak to 1 if yesterday's event is missing
 - `enableLogging` — verbose console logs
 - `maxCounterDays` — safety cap on counter values
@@ -54,6 +57,28 @@ Global flags (under `CONFIG`):
 - RESET / SKIP sentinel events
 - Gap detection — missed days auto-break the streak
 - No external dependencies
+
+## Resetting a streak
+
+To reset one habit, edit today's generated all-day event and add `[RESET]` to
+its title or description. On the next run, that event becomes Day 1 and the
+following event becomes Day 2. You can also mark yesterday's event before the
+next daily run. The marker is kept so you can see where and why the streak
+restarted.
+
+To reset all enabled habits at once, create a separate all-day event whose title
+is exactly `RESET`. You can run `createDailyHabitEvent()` manually after editing
+today's event, or let the next scheduled run process it.
+
+Use the bracketed spelling `[RESET]` to make the intent visually clear. Matching
+is case-insensitive, so `RESET` and `[reset]` also work. Words such as
+`resetting` do not trigger a reset.
+
+The automatic daily job inspects today and yesterday. If you add `[RESET]` to
+an older historical event, temporarily move the marker to today's event (or
+adjust the later event titles manually); historical rebuilding is intentionally
+not performed during every daily run to avoid scanning and rewriting the whole
+calendar.
 
 ## License
 
