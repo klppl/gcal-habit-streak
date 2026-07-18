@@ -219,21 +219,32 @@ const CONFIG = {
       resetTriggeredYesterday || yesterdayHabitEvents.some(event => hasControlMarker(event, 'RESET'))
     );
 
-    if (resetYesterday) {
-      yesterdayHabitEvents.forEach(event => normalizeHabitEvent(event, habit, 1, 'RESET'));
-    }
-
     if (habitEvents.length > 0) {
-      if (resetToday || resetYesterday) {
-        const count = resetToday ? 1 : 2;
-        habitEvents.forEach(event => normalizeHabitEvent(event, habit, count, resetToday ? 'RESET' : null));
-        newCounters[`HABIT_COUNTER_${habit.id}`] = count.toString();
-        log(`Applied reset for habit ${habit.id}; today's counter is ${count}`);
+      if (resetToday) {
+        // The marked event is the break itself. Keep its title/description as
+        // the audit marker; the next calendar day will start at Day 1.
+        newCounters[`HABIT_COUNTER_${habit.id}`] = '0';
+        log(`Reset break recorded today for habit ${habit.id}; next day will be Day 1`);
         return {
           habitId: habit.id,
           success: true,
-          message: 'Existing event updated after reset',
-          dayCount: count,
+          message: 'Reset break recorded; next day starts at 1',
+          dayCount: 0,
+          resetApplied: true,
+          eventTitle: habitEvents[0].getTitle(),
+          eventId: habitEvents[0].getId()
+        };
+      }
+
+      if (resetYesterday) {
+        habitEvents.forEach(event => normalizeHabitEvent(event, habit, 1));
+        newCounters[`HABIT_COUNTER_${habit.id}`] = '1';
+        log(`Reset break was yesterday for habit ${habit.id}; today's counter is 1`);
+        return {
+          habitId: habit.id,
+          success: true,
+          message: 'Existing event updated to Day 1 after reset',
+          dayCount: 1,
           resetApplied: true,
           eventTitle: habitEvents[0].getTitle(),
           eventId: habitEvents[0].getId()
@@ -246,6 +257,20 @@ const CONFIG = {
         success: false,
         message: "Event already exists for today",
         existingEvent: habitEvents[0].getTitle()
+      };
+    }
+
+    if (resetToday) {
+      // A standalone RESET is also a break day. Do not create a generated
+      // habit event beside it; tomorrow's run will create Day 1.
+      newCounters[`HABIT_COUNTER_${habit.id}`] = '0';
+      log(`Global reset break recorded today for habit ${habit.id}; no habit event created`);
+      return {
+        habitId: habit.id,
+        success: true,
+        message: 'Reset break recorded; next day starts at 1',
+        dayCount: 0,
+        resetApplied: true
       };
     }
 
@@ -297,24 +322,15 @@ const CONFIG = {
   }
 
   /**
-   * Rewrite a generated habit event to the supplied day number. If RESET was
-   * written in the title, retain it in a consistent `[RESET]` form so future
-   * runs can still see why the streak restarted.
+   * Rewrite a generated habit event to the supplied day number.
    */
-  function normalizeHabitEvent(event, habit, count, marker = null) {
-    const titleHasMarker = marker && hasControlMarkerInText(event.getTitle(), marker);
+  function normalizeHabitEvent(event, habit, count) {
     const message = getHabitMessageForHabit(count, habit);
-    const markerSuffix = titleHasMarker ? ` [${marker}]` : '';
-    const title = `${habit.name} - Day ${count} – ${message}${markerSuffix}`;
+    const title = `${habit.name} - Day ${count} – ${message}`;
     if (event.getTitle() !== title) {
       event.setTitle(title);
       log(`Updated habit event after reset: ${title}`);
     }
-  }
-
-  function hasControlMarkerInText(text, marker) {
-    const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`, 'i').test(text || '');
   }
   
   /**
@@ -410,19 +426,19 @@ const CONFIG = {
    * @returns {number} The counter value
    */
   function determineCounterForHabit(allProps, habit, resetTriggered, resetTriggeredYesterday, skipTriggered, yesterdayEvents, startOfDay) {
-    if (habit.manualCounter !== null) {
-      log(`Using manual counter for habit ${habit.id}: ${habit.manualCounter}`);
-      return habit.manualCounter;
-    }
-
     if (resetTriggered) {
-      log(`Reset triggered for habit ${habit.id}, starting counter at 1`);
-      return 1;
+      log(`Reset break triggered today for habit ${habit.id}, setting counter to 0`);
+      return 0;
     }
 
     if (resetTriggeredYesterday) {
-      log(`Reset was triggered yesterday for habit ${habit.id}, setting counter to 2`);
-      return 2;
+      log(`Reset break was yesterday for habit ${habit.id}, starting counter at 1`);
+      return 1;
+    }
+
+    if (habit.manualCounter !== null) {
+      log(`Using manual counter for habit ${habit.id}: ${habit.manualCounter}`);
+      return habit.manualCounter;
     }
 
     const currentCount = parseInt(allProps[`HABIT_COUNTER_${habit.id}`] || "0", 10);
@@ -766,7 +782,9 @@ function sendWeeklySummary() {
   
   const habitEvents = {};
   for (const habit of CONFIG.habits) {
-    habitEvents[habit.id] = findHabitEvents(allDayWeekEvents, habit);
+    // A RESET-marked habit event represents the break, not a completed day.
+    habitEvents[habit.id] = findHabitEvents(allDayWeekEvents, habit)
+      .filter(event => !hasControlMarker(event, 'RESET'));
   }
 
   const { counters, bests } = readAllStreakProps();

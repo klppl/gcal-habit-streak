@@ -15,7 +15,7 @@ Track your daily habits with Google Calendar events. Automatically counts streak
 
 - Creates one all-day event per habit each day
 - Counts consecutive days automatically, tracks your best streak
-- Add `[RESET]` to a generated habit event to restart that habit from Day 1
+- Add `[RESET]` to a generated habit event so the following day restarts at Day 1
 - Or add a separate all-day event titled exactly `RESET` to reset every enabled habit
 - RESET markers remain in Calendar as an audit trail
 - Add a separate `SKIP` all-day event to pause the counter for that day
@@ -61,10 +61,10 @@ Global flags (under `CONFIG`):
 ## Resetting a streak
 
 To reset one habit, edit today's generated all-day event and add `[RESET]` to
-its title or description. On the next run, that event becomes Day 1 and the
-following event becomes Day 2. You can also mark yesterday's event before the
-next daily run. The marker is kept so you can see where and why the streak
-restarted.
+its title or description. That event marks the break and is not Day 1. The next
+calendar day starts the new streak at Day 1, followed by Day 2. You can also
+mark yesterday's event before today's daily run. The marker is kept so you can
+see where and why the streak restarted.
 
 To reset all enabled habits at once, create a separate all-day event whose title
 is exactly `RESET`. You can run `createDailyHabitEvent()` manually after editing
