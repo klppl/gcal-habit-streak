@@ -1,6 +1,8 @@
 
 # Google Calendar Habit Streak
 
+[![License: Lagom](https://img.shields.io/badge/license-lagom-9E2B25)](https://klppl.github.io/lagom-license/)
+
 Track your daily habits with Google Calendar events. Automatically counts streaks, tracks your personal best, sends weekly summaries, and supports RESET/SKIP days.
 
 ## Quick Setup
